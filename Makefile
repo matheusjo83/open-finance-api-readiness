@@ -87,13 +87,20 @@ lint-specs: specs
 cluster: tools
 	kind get clusters | grep -qx $(CLUSTER) || kind create cluster --config infra/kind/cluster.yaml
 	kubectl config use-context kind-$(CLUSTER)
+	# kind returns before the nodes are Ready; pods scheduled earlier start late.
+	kubectl wait node --all --for=condition=Ready --timeout=3m
 	kubectl apply -f infra/k8s/namespaces.yaml
 
 platform: cluster
 	kubectl apply -f infra/k8s/dev-credentials.yaml -f infra/k8s/lakehouse-config.yaml
 	$(HELM_INSTALL) cnpg cloudnative-pg --repo https://cloudnative-pg.github.io/charts \
 	  --version $(CNPG_CHART_VERSION) -n cnpg-system --create-namespace -f infra/helm/cloudnative-pg.yaml
-	kubectl apply -f infra/k8s/catalog-db.yaml
+	# helm --wait returns when the operator pod is Ready, which can be before the API server
+	# reaches its admission webhook; retry until the webhook accepts the Cluster.
+	for i in $$(seq 1 12); do \
+	  kubectl apply -f infra/k8s/catalog-db.yaml && break; \
+	  [ $$i -lt 12 ] || exit 1; echo "CNPG webhook not reachable yet ($$i/12), retrying in 5s"; sleep 5; \
+	done
 	$(HELM_INSTALL) seaweedfs seaweedfs --repo https://seaweedfs.github.io/seaweedfs/helm \
 	  --version $(SEAWEEDFS_CHART_VERSION) -n storage -f infra/helm/seaweedfs.yaml
 	$(HELM_INSTALL) spark-operator spark-operator --repo https://kubeflow.github.io/spark-operator \
