@@ -1,0 +1,33 @@
+[project]
+name = "transmitter"
+version = "0.1.0"
+description = "Synthetic Open Finance Brasil transmitter: Consents 3.3.1 and Accounts 2.4.2 over a seeded dataset"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2",
+    "openapi-core",
+    "pytest",
+    "pyyaml",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Only versions published at least two weeks before the lock was last resolved.
+exclude-newer = "2026-11-02T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # openapi-core skips the openIdConnect scheme; security (FAPI-BR) is a later layer.
+    "ignore:Unsupported scheme type:UserWarning",
+]
