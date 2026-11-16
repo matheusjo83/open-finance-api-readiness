@@ -1,0 +1,50 @@
+# Synthetic Open Finance transmitter (services/transmitter): Consents 3.3.1 and Accounts 2.4.2
+# over a seeded dataset. In-cluster URL: http://transmitter.ofb.svc
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transmitter
+  namespace: ofb
+  labels: { app: transmitter }
+spec:
+  # One replica: consents live in memory.
+  replicas: 1
+  selector:
+    matchLabels: { app: transmitter }
+  template:
+    metadata:
+      labels: { app: transmitter }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: transmitter
+          # Built locally and loaded into kind (make transmitter-image).
+          image: ofar/transmitter:local
+          imagePullPolicy: Never
+          env:
+            - { name: TRANSMITTER_SEED, value: "42" }
+            - { name: TRANSMITTER_CUSTOMERS, value: "5" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transmitter
+  namespace: ofb
+spec:
+  selector: { app: transmitter }
+  ports:
+    - { name: http, port: 80, targetPort: http }

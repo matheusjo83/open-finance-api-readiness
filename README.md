@@ -21,14 +21,15 @@ for the tool choices.
 | Apache Iceberg | 1.12.0 | Table format, JDBC catalog, S3FileIO |
 | CloudNativePG | chart 0.29.1 (operator 1.30.1, Postgres 18.6) | Iceberg catalog database |
 | SeaweedFS | chart 4.54.0 | S3 object store (bucket `lakehouse`) |
+| Synthetic transmitter | Python 3.13, FastAPI (`services/transmitter`, uv.lock) | Consents and Accounts APIs over a seeded dataset |
 
 ## Quickstart
 
-Requires Docker and linux-amd64 (WSL works). `kind`, `helm` and `kubectl` are downloaded into
-`.bin/` at pinned versions.
+Requires Docker and linux-amd64 (WSL works). `kind`, `helm`, `kubectl` and `uv` are downloaded
+into `.bin/` at pinned versions.
 
 ```bash
-make up      # cluster, platform, Spark image
+make up      # cluster, platform, Spark image, synthetic transmitter
 make smoke   # Iceberg table written to SeaweedFS through the Postgres catalog, read back
 make down    # delete the cluster
 ```
@@ -56,6 +57,19 @@ The lint fails on errors and prints warnings; the known warnings are listed in
 
 The credentials in `infra/k8s/dev-credentials.yaml` and `infra/helm/seaweedfs.yaml` are fixed
 values for the disposable local cluster only.
+
+## Synthetic transmitter
+
+`services/transmitter` serves Consents 3.3.1 and Accounts 2.4.2 over a seeded synthetic dataset,
+in the `ofb` namespace (`http://transmitter.ofb.svc`). `make up` deploys it.
+
+```bash
+make transmitter-test    # every response, happy and error paths, validated against the specs
+make transmitter-smoke   # calls it through its Service from inside the cluster
+```
+
+See [docs/transmitter.md](docs/transmitter.md) for the dataset, the consent lifecycle and the
+mock-only stand-ins (token, authorisation).
 
 ## License
 

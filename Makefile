@@ -11,6 +11,7 @@ export PATH := $(BIN):$(PATH)
 
 CLUSTER := open-finance
 SPARK_IMAGE := ofar/spark:local
+TRANSMITTER_IMAGE := ofar/transmitter:local
 
 KIND_VERSION := v0.33.0
 KIND_SHA256 := aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
@@ -18,6 +19,8 @@ HELM_VERSION := v4.3.2
 HELM_SHA256 := d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983
 KUBECTL_VERSION := v1.37.0
 KUBECTL_SHA256 := 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+UV_VERSION := 0.13.6
+UV_SHA256 := f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
 
 CNPG_CHART_VERSION := 0.29.1
 SEAWEEDFS_CHART_VERSION := 4.54.0
@@ -38,7 +41,8 @@ SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IM
 
 HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
-.PHONY: tools specs lint-specs cluster platform image up smoke diagnose down
+.PHONY: tools specs lint-specs transmitter-test cluster platform image transmitter-image transmitter-deploy \
+  transmitter-smoke up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -54,6 +58,14 @@ $(BIN)/helm:
 	echo "$(HELM_SHA256)  $(BIN)/helm.tgz" | sha256sum -c --quiet
 	tar -xzf $(BIN)/helm.tgz -C $(BIN) --strip-components=1 linux-amd64/helm
 	rm $(BIN)/helm.tgz
+
+# uv runs the Python services' tests (it also fetches the pinned Python 3.13).
+$(BIN)/uv:
+	mkdir -p $(BIN)
+	curl -fsSLo $(BIN)/uv.tgz https://github.com/astral-sh/uv/releases/download/$(UV_VERSION)/uv-x86_64-unknown-linux-gnu.tar.gz
+	echo "$(UV_SHA256)  $(BIN)/uv.tgz" | sha256sum -c --quiet
+	tar -xzf $(BIN)/uv.tgz -C $(BIN) --strip-components=1 uv-x86_64-unknown-linux-gnu/uv
+	rm $(BIN)/uv.tgz
 
 $(BIN)/kubectl:
 	mkdir -p $(BIN)
@@ -84,6 +96,10 @@ lint-specs: specs
 	$(SPECTRAL) lint --ruleset ruleset.yaml --format json --quiet fixtures/defective.yml > specs/upstream/defective.json || true
 	python3 -I scripts/check-ruleset.py specs/ruleset.yaml specs/upstream/defective.json
 
+# Every transmitter response, happy and error paths, validated against the pinned specs.
+transmitter-test: $(BIN)/uv specs
+	cd services/transmitter && uv run --locked pytest
+
 cluster: tools
 	kind get clusters | grep -qx $(CLUSTER) || kind create cluster --config infra/kind/cluster.yaml
 	kubectl config use-context kind-$(CLUSTER)
@@ -111,7 +127,20 @@ image: cluster
 	docker build -f images/spark/Dockerfile -t $(SPARK_IMAGE) .
 	kind load docker-image $(SPARK_IMAGE) --name $(CLUSTER)
 
-up: platform image
+transmitter-image: cluster
+	docker build -t $(TRANSMITTER_IMAGE) services/transmitter
+	kind load docker-image $(TRANSMITTER_IMAGE) --name $(CLUSTER)
+
+transmitter-deploy: transmitter-image
+	kubectl apply -f infra/k8s/transmitter.yaml
+	kubectl -n ofb rollout restart deployment/transmitter
+	kubectl -n ofb rollout status deployment/transmitter --timeout=3m
+
+# Calls the transmitter through its Service from inside the cluster.
+transmitter-smoke:
+	kubectl -n ofb exec -i deploy/transmitter -- python - < scripts/transmitter_smoke.py
+
+up: platform image transmitter-deploy
 
 # Writes an Iceberg table to SeaweedFS through the Postgres catalog and reads it back.
 smoke:
@@ -123,7 +152,7 @@ diagnose:
 	-kubectl get pods -A -o wide
 	-kubectl -n spark get sparkapplications -o yaml
 	-kubectl get events -A --sort-by=.lastTimestamp | tail -50
-	-for ns in storage spark spark-operator cnpg-system; do \
+	-for ns in storage spark spark-operator cnpg-system ofb; do \
 	  for p in $$(kubectl -n $$ns get pods -o name); do \
 	    echo "=== $$ns/$$p"; kubectl -n $$ns logs $$p --all-containers --tail=80; done; done
 

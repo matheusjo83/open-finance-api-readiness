@@ -1,6 +1,8 @@
-# specs: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs).
+# checks: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs)
+# and validates every transmitter response against them (make transmitter-test).
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
-# the smoke job: an Iceberg table written to SeaweedFS through the Postgres catalog and read back.
+# the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
+# back), then deploys the synthetic transmitter and calls it from inside the cluster.
 name: CI
 
 on:
@@ -17,14 +19,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  specs:
+  checks:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
+      # uv at the version pinned in the Makefile, and its download cache (Python, wheels).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .bin
+            ~/.cache/uv
+          key: checks-${{ hashFiles('Makefile', 'services/*/uv.lock') }}
+
       - name: Lint specifications (Spectral)
         run: make lint-specs
+
+      - name: Transmitter tests (responses validated against the specs)
+        run: make transmitter-test
 
   platform:
     # Pinned: ubuntu-latest moves to a new release on its own.
@@ -47,6 +60,9 @@ jobs:
 
       - name: Smoke job
         run: make smoke
+
+      - name: Transmitter (image, deploy, in-cluster check)
+        run: make transmitter-deploy transmitter-smoke
 
       - name: Diagnostics
         if: failure()
