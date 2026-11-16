@@ -1,0 +1,53 @@
+"""Which defect, if any, an exchange gets: a deterministic function of the seed and the request.
+
+The key is the seed, the method, the path, the sorted query and the consent (bearer token); the
+interaction id is left out, so a retried request gets the same decision. One uniform draw from
+the key walks the applicable classes, in catalogue order, accumulating their rates: at most one
+defect per response, and each class is chosen with probability equal to its rate.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import random
+
+from .catalogue import CATALOGUE, Defect, Exchange
+
+
+def parse_rates(raw: str | None) -> dict[str, float]:
+    """Per-class rates: the defaults, overridden by a JSON object (DEFECT_RATES)."""
+    rates = {d.id: d.default_rate for d in CATALOGUE}
+    if raw:
+        override = json.loads(raw)
+        unknown = set(override) - set(rates)
+        if unknown:
+            raise ValueError(f"unknown defect classes in DEFECT_RATES: {sorted(unknown)}")
+        rates.update({k: float(v) for k, v in override.items()})
+    if any(not 0 <= r <= 1 for r in rates.values()):
+        raise ValueError("defect rates must be between 0 and 1")
+    if sum(rates.values()) > 1:
+        raise ValueError(f"defect rates add up to {sum(rates.values()):.2f}; at most 1 so one draw picks one class")
+    return rates
+
+
+def request_key(seed: int, ex: Exchange) -> str:
+    query = "&".join(f"{k}={v}" for k, v in sorted(ex.query))
+    return f"{seed}|{ex.method}|{ex.path}|{query}|{ex.token or ''}"
+
+
+def _uniform(text: str) -> float:
+    return int.from_bytes(hashlib.sha256(text.encode()).digest()[:8], "big") / 2**64
+
+
+def choose(seed: int, rates: dict[str, float], ex: Exchange) -> tuple[Defect, random.Random] | None:
+    key = request_key(seed, ex)
+    draw, cumulative = _uniform(key), 0.0
+    for defect in CATALOGUE:
+        rate = rates.get(defect.id, 0.0)
+        if rate <= 0 or not defect.applies(ex):
+            continue
+        cumulative += rate
+        if draw < cumulative:
+            return defect, random.Random(_uniform(f"{key}|{defect.id}"))
+    return None

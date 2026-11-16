@@ -14,6 +14,10 @@ spec:
   template:
     metadata:
       labels: { app: transmitter }
+      annotations:
+        # make transmitter-deploy writes a hash of the image's build inputs here: changed inputs
+        # roll the pod, unchanged ones leave it alone.
+        ofar/image-id: unset
     spec:
       securityContext:
         runAsNonRoot: true

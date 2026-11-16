@@ -1,0 +1,62 @@
+# Defect proxy (services/proxy): in front of the transmitter, injects catalogued defects and
+# writes a label per exchange to s3://lakehouse/labels/run=<run_id>/ (docs/defects.md).
+# In-cluster URL: http://proxy.ofb.svc
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  namespace: ofb
+  labels: { app: proxy }
+spec:
+  # One replica: one run id and one sequence of label parts per run.
+  replicas: 1
+  selector:
+    matchLabels: { app: proxy }
+  template:
+    metadata:
+      labels: { app: proxy }
+      annotations:
+        # make proxy-deploy writes a hash of the image's build inputs here: changed inputs
+        # roll the pod, unchanged ones leave it alone.
+        ofar/image-id: unset
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: proxy
+          # Built locally and loaded into kind (make proxy-image).
+          image: ofar/defect-proxy:local
+          imagePullPolicy: Never
+          env:
+            - { name: UPSTREAM, value: "http://transmitter.ofb.svc" }
+            - { name: DEFECT_SEED, value: "42" }
+            # Per-class rates as JSON, e.g. {"invalid-format": 0.1}; defaults in docs/defects.md.
+            - { name: DEFECT_RATES, value: "" }
+            - { name: S3_ENDPOINT, value: "http://seaweedfs-all-in-one.storage.svc:8333" }
+            - { name: LABELS_BUCKET, value: lakehouse }
+            - { name: AWS_REGION, value: us-east-1 }
+          envFrom:
+            - secretRef: { name: labels-credentials }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /_proxy/healthz, port: http }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+  namespace: ofb
+spec:
+  selector: { app: proxy }
+  ports:
+    - { name: http, port: 80, targetPort: http }

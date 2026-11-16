@@ -1,8 +1,10 @@
 # checks: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs)
-# and validates every transmitter response against them (make transmitter-test).
+# and tests the services against them: the transmitter (make transmitter-test) and the defect
+# proxy (make proxy-test).
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
-# back), then deploys the synthetic transmitter and calls it from inside the cluster.
+# back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
+# the cluster (the proxy's labels are read back from SeaweedFS).
 name: CI
 
 on:
@@ -39,6 +41,9 @@ jobs:
       - name: Transmitter tests (responses validated against the specs)
         run: make transmitter-test
 
+      - name: Defect proxy tests (every class against the transmitter)
+        run: make proxy-test
+
   platform:
     # Pinned: ubuntu-latest moves to a new release on its own.
     runs-on: ubuntu-24.04
@@ -63,6 +68,9 @@ jobs:
 
       - name: Transmitter (image, deploy, in-cluster check)
         run: make transmitter-deploy transmitter-smoke
+
+      - name: Defect proxy (image, deploy, labels in SeaweedFS)
+        run: make proxy-deploy proxy-smoke
 
       - name: Diagnostics
         if: failure()

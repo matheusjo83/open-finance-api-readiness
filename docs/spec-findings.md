@@ -6,7 +6,13 @@ Errors fail the lint; the warnings below are known and accepted.
 
 ## Consents 3.3.1
 
-No findings.
+No lint findings.
+
+The `x-fapi-interaction-id` response header is declared on every 2xx response but without
+`required: true`, while Accounts 2.4.2 marks it required. Its description says the transmitter
+must echo it, so a response without it breaks the standard and still passes schema validation.
+The contract validator needs an explicit echo rule (see `missing-interaction-id` in
+[defects.md](defects.md)).
 
 The file starts with a UTF-8 byte order mark. Spectral accepts it; tools that read the specs
 later (mock, contract tests) must decode with `utf-8-sig` or equivalent.

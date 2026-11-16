@@ -1,0 +1,42 @@
+[project]
+name = "defect-proxy"
+version = "0.1.0"
+description = "Defect proxy: forwards to the synthetic transmitter, injects catalogued defects and labels every exchange"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "boto3",
+    "httpx2",
+    "starlette",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "openapi-core",
+    "pytest",
+    "pyyaml",
+    "transmitter",
+]
+
+[tool.uv.sources]
+# The tests run the proxy over the real transmitter, in process.
+transmitter = { path = "../transmitter" }
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Only versions published at least two weeks before the lock was last resolved.
+exclude-newer = "2026-11-02T00:00:00Z"
+
+[tool.uv.build-backend]
+module-name = "defect_proxy"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # openapi-core skips the openIdConnect scheme; security (FAPI-BR) is a later layer.
+    "ignore:Unsupported scheme type:UserWarning",
+]
