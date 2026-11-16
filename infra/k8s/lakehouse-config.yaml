@@ -1,0 +1,12 @@
+# Non-secret lakehouse settings for the Spark jobs (see jobs/lib/lakehouse.py).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lakehouse-config
+  namespace: spark
+data:
+  CATALOG_URI: jdbc:postgresql://iceberg-catalog-rw.storage.svc:5432/iceberg
+  WAREHOUSE: s3://lakehouse/warehouse
+  S3_ENDPOINT: http://seaweedfs-all-in-one.storage.svc:8333
+  # SeaweedFS ignores the region, but the AWS SDK needs one.
+  AWS_REGION: us-east-1

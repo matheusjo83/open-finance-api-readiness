@@ -1,0 +1,16 @@
+# Kubeflow Spark Operator (chart 2.6.0). Jobs run in the spark namespace under the
+# service account "spark". The webhook stays on: it injects envFrom (the lakehouse
+# Secret and ConfigMap) into the driver and executor pods.
+spark:
+  jobNamespaces:
+    - spark
+  serviceAccount:
+    create: true
+    name: spark
+
+webhook:
+  enable: true
+
+prometheus:
+  metrics:
+    enable: false

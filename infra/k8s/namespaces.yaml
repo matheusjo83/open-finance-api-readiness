@@ -1,0 +1,17 @@
+# storage: SeaweedFS (S3) and the Iceberg catalog database.
+# spark: the Spark jobs (the operator itself runs in spark-operator).
+# ofb: the Open Finance mock transmitter and the defect proxy (backlog item 2).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spark
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ofb

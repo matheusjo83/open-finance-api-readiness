@@ -1,0 +1,10 @@
+# Pinned tools downloaded by the Makefile
+.bin/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Windows download metadata (WSL)
+*:Zone.Identifier

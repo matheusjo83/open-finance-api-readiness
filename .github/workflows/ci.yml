@@ -1,0 +1,43 @@
+# Brings the local platform up in kind, exactly as `make up` does on a laptop, and runs the
+# smoke job: an Iceberg table written to SeaweedFS through the Postgres catalog and read back.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform:
+    # Pinned: ubuntu-latest moves to a new release on its own.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # kind, helm and kubectl at the versions pinned in the Makefile.
+      - uses: actions/cache@v6
+        with:
+          path: .bin
+          key: tools-${{ hashFiles('Makefile') }}
+
+      - name: Platform (kind, CloudNativePG, SeaweedFS, Spark Operator)
+        run: make platform
+
+      - name: Spark image
+        run: make image
+
+      - name: Smoke job
+        run: make smoke
+
+      - name: Diagnostics
+        if: failure()
+        run: make diagnose
