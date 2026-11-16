@@ -1,5 +1,6 @@
-# Brings the local platform up in kind, exactly as `make up` does on a laptop, and runs the
-# smoke job: an Iceberg table written to SeaweedFS through the Postgres catalog and read back.
+# specs: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs).
+# platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
+# the smoke job: an Iceberg table written to SeaweedFS through the Postgres catalog and read back.
 name: CI
 
 on:
@@ -16,6 +17,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  specs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lint specifications (Spectral)
+        run: make lint-specs
+
   platform:
     # Pinned: ubuntu-latest moves to a new release on its own.
     runs-on: ubuntu-24.04
