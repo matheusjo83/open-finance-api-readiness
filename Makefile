@@ -12,6 +12,7 @@ export PATH := $(BIN):$(PATH)
 CLUSTER := open-finance
 SPARK_IMAGE := ofar/spark:local
 TRANSMITTER_IMAGE := ofar/transmitter:local
+PROXY_IMAGE := ofar/defect-proxy:local
 
 KIND_VERSION := v0.33.0
 KIND_SHA256 := aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
@@ -41,8 +42,8 @@ SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IM
 
 HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
-.PHONY: tools specs lint-specs transmitter-test cluster platform image transmitter-image transmitter-deploy \
-  transmitter-smoke up smoke diagnose down
+.PHONY: tools specs lint-specs transmitter-test proxy-test cluster platform image transmitter-image \
+  transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -100,6 +101,11 @@ lint-specs: specs
 transmitter-test: $(BIN)/uv specs
 	cd services/transmitter && uv run --locked pytest
 
+# Every defect class against the real transmitter in process: contract defects break the specs,
+# business defects keep them and break a domain rule; labels, determinism, rates.
+proxy-test: $(BIN)/uv specs
+	cd services/proxy && uv run --locked pytest
+
 cluster: tools
 	kind get clusters | grep -qx $(CLUSTER) || kind create cluster --config infra/kind/cluster.yaml
 	kubectl config use-context kind-$(CLUSTER)
@@ -131,16 +137,35 @@ transmitter-image: cluster
 	docker build -t $(TRANSMITTER_IMAGE) services/transmitter
 	kind load docker-image $(TRANSMITTER_IMAGE) --name $(CLUSTER)
 
+# Applies a manifest with a hash of the image's build inputs in its ofar/image-id annotation, so
+# the pod is replaced only when they change. (Docker's image id is not used: with the containerd
+# image store it changes on every build, even a fully cached one.)
+define apply_with_image_id
+sed "s|ofar/image-id: .*|ofar/image-id: \"$$(cd $(1) && find Dockerfile pyproject.toml uv.lock .python-version src -type f \
+  ! -path '*/__pycache__/*' | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-12)\"|" $(2) | kubectl apply -f -
+endef
+
 transmitter-deploy: transmitter-image
-	kubectl apply -f infra/k8s/transmitter.yaml
-	kubectl -n ofb rollout restart deployment/transmitter
+	$(call apply_with_image_id,services/transmitter,infra/k8s/transmitter.yaml)
 	kubectl -n ofb rollout status deployment/transmitter --timeout=3m
 
 # Calls the transmitter through its Service from inside the cluster.
 transmitter-smoke:
 	kubectl -n ofb exec -i deploy/transmitter -- python - < scripts/transmitter_smoke.py
 
-up: platform image transmitter-deploy
+proxy-image: cluster
+	docker build -t $(PROXY_IMAGE) services/proxy
+	kind load docker-image $(PROXY_IMAGE) --name $(CLUSTER)
+
+proxy-deploy: proxy-image
+	$(call apply_with_image_id,services/proxy,infra/k8s/proxy.yaml)
+	kubectl -n ofb rollout status deployment/proxy --timeout=3m
+
+# Walks the seeded resources through the proxy and reads the labels back from SeaweedFS.
+proxy-smoke:
+	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/proxy_smoke.py
+
+up: platform image transmitter-deploy proxy-deploy
 
 # Writes an Iceberg table to SeaweedFS through the Postgres catalog and reads it back.
 smoke:

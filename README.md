@@ -22,6 +22,7 @@ for the tool choices.
 | CloudNativePG | chart 0.29.1 (operator 1.30.1, Postgres 18.6) | Iceberg catalog database |
 | SeaweedFS | chart 4.54.0 | S3 object store (bucket `lakehouse`) |
 | Synthetic transmitter | Python 3.13, FastAPI (`services/transmitter`, uv.lock) | Consents and Accounts APIs over a seeded dataset |
+| Defect proxy | Python 3.13, Starlette, boto3 (`services/proxy`, uv.lock) | Injects catalogued defects, labels every exchange in S3 |
 
 ## Quickstart
 
@@ -29,7 +30,7 @@ Requires Docker and linux-amd64 (WSL works). `kind`, `helm`, `kubectl` and `uv` 
 into `.bin/` at pinned versions.
 
 ```bash
-make up      # cluster, platform, Spark image, synthetic transmitter
+make up      # cluster, platform, Spark image, synthetic transmitter, defect proxy
 make smoke   # Iceberg table written to SeaweedFS through the Postgres catalog, read back
 make down    # delete the cluster
 ```
@@ -70,6 +71,20 @@ make transmitter-smoke   # calls it through its Service from inside the cluster
 
 See [docs/transmitter.md](docs/transmitter.md) for the dataset, the consent lifecycle and the
 mock-only stand-ins (token, authorisation).
+
+## Defect proxy
+
+`services/proxy` (`http://proxy.ofb.svc`) forwards to the transmitter and injects one of 8
+catalogued defects (4 contract, 4 business) into a share of the responses, chosen
+deterministically from a seed and the request. Every exchange gets a label (ground truth) in
+`s3://lakehouse/labels/run=<run_id>/`. `make up` deploys it.
+
+```bash
+make proxy-test    # every defect class against the real transmitter, in process
+make proxy-smoke   # walks the seeded resources through the proxy, reads the labels back from S3
+```
+
+See [docs/defects.md](docs/defects.md) for the catalogue, the selection and the label format.
 
 ## License
 

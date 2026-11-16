@@ -8,8 +8,8 @@ detects, against defects injected on purpose (precision and recall per defect cl
 
 - [x] **0. Platform skeleton**: kind, Spark Operator, SeaweedFS, Iceberg catalog in Postgres, `make up` / `make smoke`, CI.
 - [x] **1. Specs**: the official OpenAPI files of Consents 3.3.1 and Accounts 2.4.2, pinned, linted with Spectral (`spectral:oas` plus `ofb-*` convention rules); known findings in [spec-findings.md](spec-findings.md).
-- [ ] **2a. Synthetic transmitter**: Consents 3.3.1 and Accounts 2.4.2 over a seeded, coherent dataset with consent state; every response validated against the pinned specs ([transmitter.md](transmitter.md)).
-- [ ] **2b. Defect proxy**: in front of the transmitter, a defect catalogue (broken schema, inconsistent balance, wrong pagination, expired consent still serving data), each injected defect labelled (ground truth) in the object store.
+- [x] **2a. Synthetic transmitter**: Consents 3.3.1 and Accounts 2.4.2 over a seeded, coherent dataset with consent state; every response validated against the pinned specs ([transmitter.md](transmitter.md)).
+- [ ] **2b. Defect proxy**: in front of the transmitter, 8 defect classes (4 contract, 4 business) chosen deterministically per request, every exchange labelled (ground truth) as JSONL in the object store ([defects.md](defects.md)).
 - [ ] **3. Contract validator**: Schemathesis against the mock (through the proxy); results as JSONL in the object store.
 - [ ] **4. Business rules job**: PySpark reads the responses, applies the rules, writes findings to Iceberg tables.
 - [ ] **5. Detection report**: precision and recall per defect class.

@@ -7,10 +7,25 @@ Standard library only (the runtime image has no test dependencies).
 
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 import uuid
 
 BASE = "http://transmitter.ofb.svc"
+
+
+def wait_for_service(url: str, seconds: int = 60) -> None:
+    """A pod can be Ready before kube-proxy routes the Service to it (connection refused)."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=5):
+                return
+        except (urllib.error.URLError, ConnectionError) as e:
+            if time.monotonic() > deadline:
+                sys.exit(f"{url} not reachable after {seconds}s: {e}")
+            time.sleep(1)
 
 
 def get(path: str, token: str | None = None) -> tuple[int, dict, dict]:
@@ -25,6 +40,7 @@ def get(path: str, token: str | None = None) -> tuple[int, dict, dict]:
         return r.status, dict(r.headers), body
 
 
+wait_for_service(BASE + "/healthz")
 _, _, seed = get("/mock/seed")
 customer = seed["customers"][0]
 token, account = customer["consents"][0], customer["accounts"][0]
