@@ -1,0 +1,42 @@
+# A deliberately broken specification: each ofb-* rule in ../ruleset.yaml must report at
+# least one finding here (checked by scripts/check-ruleset.py). Not an Open Finance API.
+openapi: 3.0.0
+info:
+  title: Defective fixture
+  description: Violates every ofb-* rule once.
+  version: 0.0.1
+  contact:
+    name: fixture
+servers:
+  - url: https://api.example.com/accounts/v2
+tags:
+  - name: Fixture
+paths:
+  /things:
+    get:
+      tags: [Fixture]
+      operationId: getThings
+      summary: List things
+      description: Missing the interaction id, the envelope, the error items and most error statuses.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Things
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { type: string } }
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }

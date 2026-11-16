@@ -35,6 +35,25 @@ make down    # delete the cluster
 
 `make diagnose` prints pods, events and logs when something fails.
 
+## Specifications
+
+| API | Version | Source |
+|---|---|---|
+| Consents | 3.3.1 | `swagger-apis/consents/3.3.1.yml` |
+| Accounts | 2.4.2 | `swagger-apis/accounts/2.4.2.yml` |
+
+Both come from [OpenBanking-Brasil/openapi](https://github.com/OpenBanking-Brasil/openapi) at the
+commit pinned in the `Makefile`, checked by SHA-256. They are downloaded into `specs/upstream/`
+(not committed: the upstream repository declares no license).
+
+```bash
+make lint-specs   # Spectral: spectral:oas + the ofb-* rules in specs/ruleset.yaml
+```
+
+The lint fails on errors and prints warnings; the known warnings are listed in
+[docs/spec-findings.md](docs/spec-findings.md). It also checks that every `ofb-*` rule fires on
+`specs/fixtures/defective.yml`, a spec built to break each of them. Only Docker is needed.
+
 The credentials in `infra/k8s/dev-credentials.yaml` and `infra/helm/seaweedfs.yaml` are fixed
 values for the disposable local cluster only.
 

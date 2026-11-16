@@ -1,0 +1,113 @@
+# Spectral ruleset for the pinned Open Finance Brasil specifications.
+# spectral:oas covers OpenAPI correctness; the ofb-* rules check conventions that every
+# operation of the pinned Consents and Accounts specs follows. make lint-specs fails on errors;
+# warnings are reported and the known ones are listed in docs/spec-findings.md.
+# Every ofb-* rule must fire on fixtures/defective.yml (scripts/check-ruleset.py).
+extends: [["spectral:oas", recommended]]
+
+rules:
+  ofb-request-interaction-id:
+    description: Every operation accepts the x-fapi-interaction-id request header.
+    message: "Operation does not declare the x-fapi-interaction-id header parameter."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch]"
+    then:
+      field: parameters
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          contains:
+            type: object
+            required: [name, in]
+            properties:
+              name: { const: x-fapi-interaction-id }
+              in: { const: header }
+
+  ofb-success-interaction-id:
+    description: Every 2xx response returns the x-fapi-interaction-id header.
+    message: "2xx response does not declare the x-fapi-interaction-id header."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].responses[?(@property.match(/^2\\d\\d$/))]"
+    then:
+      field: headers.x-fapi-interaction-id
+      function: truthy
+
+  ofb-success-envelope:
+    description: 2xx bodies use the data / links / meta envelope, with meta.requestDateTime required.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].responses[?(@property.match(/^2\\d\\d$/))].content[*].schema"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [required, properties]
+          properties:
+            required: { type: array, contains: { const: data } }
+            properties:
+              type: object
+              required: [data, links, meta]
+              properties:
+                meta:
+                  type: object
+                  required: [required]
+                  properties:
+                    required: { type: array, contains: { const: requestDateTime } }
+
+  ofb-error-envelope:
+    description: 4xx, 5xx and default bodies carry a required errors array whose items require code, title and detail.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].responses[?(@property.match(/^[45]\\d\\d$/) || @property === 'default')].content[*].schema"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [required, properties]
+          properties:
+            required: { type: array, contains: { const: errors } }
+            properties:
+              type: object
+              required: [errors]
+              properties:
+                errors:
+                  type: object
+                  required: [type, minItems, items]
+                  properties:
+                    type: { const: array }
+                    minItems: { type: integer, minimum: 1 }
+                    items:
+                      type: object
+                      required: [required]
+                      properties:
+                        required:
+                          type: array
+                          allOf:
+                            - contains: { const: code }
+                            - contains: { const: title }
+                            - contains: { const: detail }
+
+  ofb-standard-error-statuses:
+    description: Every operation declares the error statuses common to all operations of the pinned specs.
+    message: "{{error}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch].responses"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: ["400", "401", "403", "404", "405", "406", "429", "500", "504", "529"]
+
+  ofb-server-url:
+    description: Server URLs follow https://<host>/open-banking/<api>/v<major>.
+    message: "Server URL {{value}} does not follow https://<host>/open-banking/<api>/v<major>."
+    severity: error
+    given: "$.servers[*].url"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^https://[^/]+/open-banking/[a-z-]+/v[0-9]+$"

@@ -8,3 +8,6 @@ __pycache__/
 
 # Windows download metadata (WSL)
 *:Zone.Identifier
+
+# Official specifications downloaded by make specs (upstream declares no license)
+specs/upstream/

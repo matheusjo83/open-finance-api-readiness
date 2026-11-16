@@ -6,8 +6,8 @@ detects, against defects injected on purpose (precision and recall per defect cl
 
 ## MVP: Consents + Accounts, layers 1 to 3
 
-- [ ] **0. Platform skeleton**: kind, Spark Operator, SeaweedFS, Iceberg catalog in Postgres, `make up` / `make smoke`, CI.
-- [ ] **1. Specs**: the official OpenAPI files of Consents 3.3.1 and Accounts 2.4.2, pinned, linted with Spectral.
+- [x] **0. Platform skeleton**: kind, Spark Operator, SeaweedFS, Iceberg catalog in Postgres, `make up` / `make smoke`, CI.
+- [ ] **1. Specs**: the official OpenAPI files of Consents 3.3.1 and Accounts 2.4.2, pinned, linted with Spectral (`spectral:oas` plus `ofb-*` convention rules); known findings in [spec-findings.md](spec-findings.md).
 - [ ] **2. Mock transmitter**: openapi-mock on the pinned specs, synthetic data, and a defect proxy with a defect catalogue (broken schema, inconsistent balance, wrong pagination, expired consent still serving data).
 - [ ] **3. Contract validator**: Schemathesis against the mock (through the proxy); results as JSONL in the object store.
 - [ ] **4. Business rules job**: PySpark reads the responses, applies the rules, writes findings to Iceberg tables.

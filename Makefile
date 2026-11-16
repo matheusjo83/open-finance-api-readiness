@@ -23,9 +23,22 @@ CNPG_CHART_VERSION := 0.29.1
 SEAWEEDFS_CHART_VERSION := 4.54.0
 SPARK_OPERATOR_CHART_VERSION := 2.6.0
 
+# Official Open Finance Brasil specifications, pinned by commit and SHA-256. Downloaded, not
+# vendored: the upstream repository declares no license.
+SPECS_COMMIT := 9116cf09c1c371782a46280eebda4a2b59244675
+SPECS_URL := https://raw.githubusercontent.com/OpenBanking-Brasil/openapi/$(SPECS_COMMIT)/swagger-apis
+CONSENTS_VERSION := 3.3.1
+CONSENTS_SHA256 := 11aefe3b7a87e4ad8c0dcaf32b118a9b7f2b873bbbf171786ada6605809aa223
+ACCOUNTS_VERSION := 2.4.2
+ACCOUNTS_SHA256 := 0b5b92e11a932019497f285e49ecef57bc8c3a61664a172fabe9b2324e9d8e1f
+SPECS := specs/upstream/consents-$(CONSENTS_VERSION).yml specs/upstream/accounts-$(ACCOUNTS_VERSION).yml
+
+SPECTRAL_IMAGE := stoplight/spectral:6.17.0@sha256:c8ffae6ee561b70e80402f1ea669e8b37c74fee48a3dbe2147b71359ed987239
+SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IMAGE)
+
 HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
-.PHONY: tools cluster platform image up smoke diagnose down
+.PHONY: tools specs lint-specs cluster platform image up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -48,16 +61,46 @@ $(BIN)/kubectl:
 	echo "$(KUBECTL_SHA256)  $@.tmp" | sha256sum -c --quiet
 	chmod +x $@.tmp && mv $@.tmp $@
 
+# Re-downloaded when the Makefile changes, so a new commit or checksum is always applied.
+define fetch_spec
+mkdir -p $(@D)
+curl -fsSLo $@.tmp $(SPECS_URL)/$(1)
+echo "$(2)  $@.tmp" | sha256sum -c --quiet
+mv $@.tmp $@
+endef
+
+specs: $(SPECS)
+
+specs/upstream/consents-$(CONSENTS_VERSION).yml: Makefile
+	$(call fetch_spec,consents/$(CONSENTS_VERSION).yml,$(CONSENTS_SHA256))
+
+specs/upstream/accounts-$(ACCOUNTS_VERSION).yml: Makefile
+	$(call fetch_spec,accounts/$(ACCOUNTS_VERSION).yml,$(ACCOUNTS_SHA256))
+
+# Lints the pinned specs (fails on errors, prints warnings), then checks that every ofb-* rule
+# fires on a fixture built to break it.
+lint-specs: specs
+	$(SPECTRAL) lint --ruleset ruleset.yaml --fail-severity error $(SPECS:specs/%=%)
+	$(SPECTRAL) lint --ruleset ruleset.yaml --format json --quiet fixtures/defective.yml > specs/upstream/defective.json || true
+	python3 -I scripts/check-ruleset.py specs/ruleset.yaml specs/upstream/defective.json
+
 cluster: tools
 	kind get clusters | grep -qx $(CLUSTER) || kind create cluster --config infra/kind/cluster.yaml
 	kubectl config use-context kind-$(CLUSTER)
+	# kind returns before the nodes are Ready; pods scheduled earlier start late.
+	kubectl wait node --all --for=condition=Ready --timeout=3m
 	kubectl apply -f infra/k8s/namespaces.yaml
 
 platform: cluster
 	kubectl apply -f infra/k8s/dev-credentials.yaml -f infra/k8s/lakehouse-config.yaml
 	$(HELM_INSTALL) cnpg cloudnative-pg --repo https://cloudnative-pg.github.io/charts \
 	  --version $(CNPG_CHART_VERSION) -n cnpg-system --create-namespace -f infra/helm/cloudnative-pg.yaml
-	kubectl apply -f infra/k8s/catalog-db.yaml
+	# helm --wait returns when the operator pod is Ready, which can be before the API server
+	# reaches its admission webhook; retry until the webhook accepts the Cluster.
+	for i in $$(seq 1 12); do \
+	  kubectl apply -f infra/k8s/catalog-db.yaml && break; \
+	  [ $$i -lt 12 ] || exit 1; echo "CNPG webhook not reachable yet ($$i/12), retrying in 5s"; sleep 5; \
+	done
 	$(HELM_INSTALL) seaweedfs seaweedfs --repo https://seaweedfs.github.io/seaweedfs/helm \
 	  --version $(SEAWEEDFS_CHART_VERSION) -n storage -f infra/helm/seaweedfs.yaml
 	$(HELM_INSTALL) spark-operator spark-operator --repo https://kubeflow.github.io/spark-operator \
