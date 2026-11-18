@@ -1,8 +1,8 @@
 """The traffic: what a receiving institution would call, over the seeded dataset (GET /mock/seed).
 
 For every customer: its authorised consent, the accounts list (every page), and per account the
-detail, balances, overdraft limits, transactions over the last 12 months and the current
-transactions (every page). For the first customer, each other seeded consent is read and then
+detail, balances, overdraft limits, transactions over the last 12 months (page by page, then
+again in one page of 1000) and the current transactions (every page). For the first customer, each other seeded consent is read and then
 used on the accounts list; then balances with the consent that lacks the permission, an unknown
 account, and a consent lifecycle (create, authorise, read, use, revoke, read again). A consent
 is always read before it is used, so the business rules know its state. Every Open Finance call
@@ -29,8 +29,8 @@ PERMISSIONS = ["ACCOUNTS_READ", "ACCOUNTS_BALANCES_READ", "ACCOUNTS_TRANSACTIONS
                "ACCOUNTS_OVERDRAFT_LIMITS_READ", "RESOURCES_READ"]
 # The client-credentials token of the Consents API; the transmitter accepts any bearer there.
 CLIENT_TOKEN = "validator-client-credentials"
-# The specs' default page-size, used when the request does not set one.
-DEFAULT_PAGE_SIZE = 25
+# The specs' default and largest page-size.
+DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE = 25, 1000
 
 
 class HttpClient(Protocol):
@@ -104,6 +104,9 @@ class Walker:
                 for suffix in ("", "/balances", "/overdraft-limits"):
                     yield self.call("GET", base + suffix, token)[0]
                 yield from self.pages(f"{base}/transactions?{window}", token)
+                # The whole history in one page (the spec's largest page-size), for the balance
+                # reconciliation: one response to break instead of one per page.
+                yield from self.pages(f"{base}/transactions?{window}&page-size={MAX_PAGE_SIZE}", token)
                 yield from self.pages(f"{base}/transactions-current?{current}", token)
 
         first = seed["customers"][0]

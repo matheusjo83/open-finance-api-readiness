@@ -15,7 +15,8 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
 
 - per customer: its authorised consent (`GET /consents/{consentId}`), the accounts list (every
   page), and per account the detail, balances, overdraft limits, transactions over the last 12
-  months and the current transactions (every page, following `links.next`);
+  months (every page, following `links.next`, then again in one page of 1000 for the balance
+  reconciliation) and the current transactions (every page);
 - for the first customer: each other seeded consent is read, then used on the accounts list
   (401 when it is not authorised); balances with the consent that lacks the permission (403),
   an unknown account (404), and a consent lifecycle: create (201), authorise (`/mock`), read,
@@ -27,7 +28,7 @@ asks for the next page number anyway, a careful client's probe. A dropped next l
 shows up as a later page with items.
 
 It covers the 9 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
-id joins the result with the proxy's label. With 5 customers it makes about 140 calls.
+id joins the result with the proxy's label. With 5 customers it makes about 150 calls.
 
 The defects the proxy draws depend on the requests (decision 17), and the walk is fixed, so two
 runs over the same seed see the same defects. A defect can also change the walk. For example,

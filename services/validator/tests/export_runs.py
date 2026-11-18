@@ -1,4 +1,4 @@
-"""Exports validation runs for the business-rules job's tests (make business-test): for each
+"""Exports validation runs for the business-rules job's tests (make jobs-test): for each
 scenario, the validator walks the proxy over the real transmitter, in process, and the run is
 written as it would be in the object store (exchanges/, contract/, labels/ under run=<id>/).
 

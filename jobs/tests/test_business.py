@@ -1,10 +1,8 @@
 """The business rules over exported runs: nothing found on the clean transmitter, every business
-defect found by the rule meant for it, the contract layer's failures left out, and the
-verification against the labels."""
+defect found by the rule meant for it, and the contract layer's failures left out. The
+comparison with the labels over a whole run is the report's (test_report.py)."""
 
 import pytest
-
-from verify import compare
 
 EXPECTED_RULE = {
     "inconsistent-balance": "balance.matches-transactions",
@@ -78,13 +76,3 @@ def test_contract_failures_are_left_out(runs):
     failed = {r["interaction_id"] for r in run.contract.where("verdict = 'fail'").collect()}
     assert failed
     assert not failed & {c["interaction_id"] for c in run.checks}
-
-
-def test_default_rates_agree_with_the_labels(runs):
-    run = runs("default")
-    by_class, wrong = compare(run.tables["exchanges"], run.tables["business_checks"], run.labels)
-    assert wrong == []
-    assert sum(v.get("flagged", 0) for v in by_class.values()) > 0
-    # Inconclusive happens: a rule whose input the contract layer failed (a consent read, a page).
-    assert "flagged" not in by_class["clean"]
-    assert by_class["clean"].get("inconclusive", 0) < by_class["clean"]["passed"]

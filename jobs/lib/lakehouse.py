@@ -43,3 +43,14 @@ def session(app_name: str) -> SparkSession:
     for key, value in conf.items():
         builder = builder.config(key, value)
     return builder.getOrCreate()
+
+
+def replace_partitions(spark: SparkSession, table: str, df, column: str = "run_id") -> None:
+    """Writes df to an Iceberg table partitioned by `column`, replacing the partitions it holds;
+    creates the table on the first write. Reruns therefore do not duplicate rows."""
+    from pyspark.sql import functions as F
+
+    if spark.catalog.tableExists(table):
+        df.writeTo(table).overwritePartitions()
+    else:
+        df.writeTo(table).partitionedBy(F.col(column)).create()

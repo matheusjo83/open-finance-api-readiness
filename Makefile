@@ -4,6 +4,7 @@
 # (linux-amd64 only: WSL and the GitHub runners).
 
 SHELL := /bin/bash
+comma := ,
 .SHELLFLAGS := -euo pipefail -c
 
 BIN := $(CURDIR)/.bin
@@ -45,8 +46,8 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs lint-specs transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke business-test business-rules business-smoke up smoke \
-  diagnose down
+  validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign up \
+  smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -173,9 +174,9 @@ proxy-deploy: proxy-image
 proxy-smoke:
 	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/proxy_smoke.py
 
-# The business rules over validation runs exported in process (transmitter, proxy, validator),
-# with a local Spark: no finding on clean runs, every business defect found by its rule.
-business-test: $(BIN)/uv specs
+# The business rules and the detection report over validation runs exported in process
+# (transmitter, proxy, validator), with a local Spark (Python 3.10 and Java 17, as in the image).
+jobs-test: $(BIN)/uv specs
 	rm -rf jobs/tests/.runs
 	cd services/validator && uv run --locked python -W ignore -m tests.export_runs ../../jobs/tests/.runs
 	cd jobs && uv run --locked pytest
@@ -199,20 +200,40 @@ validator-smoke:
 # SparkApplication: bronze, silver and gold Iceberg tables in lake.ofb.
 PROXY_RUN_ID = kubectl -n ofb exec deploy/proxy -- python -c \
   "import json, urllib.request; print(json.load(urllib.request.urlopen('http://localhost:8080/_proxy/run'))['run_id'])"
-define run_business
-run_id="$${RUN_ID:-$$($(PROXY_RUN_ID))}"; echo "run $$run_id"; \
-kubectl -n spark delete sparkapplication business-rules --ignore-not-found --wait; \
-sed -e "s|\"RUN_ID\"|\"$$run_id\"|" $(1) jobs/business/sparkapp.yaml | kubectl apply -f -; \
-scripts/wait-sparkapp.sh spark business-rules 600
+
+# $(call spark_app,<name>,<manifest>,<sed expressions>): replaces the SparkApplication and waits.
+define spark_app
+kubectl -n spark delete sparkapplication $(1) --ignore-not-found --wait
+sed $(3) $(2) | kubectl apply -f -
+scripts/wait-sparkapp.sh spark $(1) 600
 endef
 
 business-rules:
-	$(call run_business,)
+	@run_id="$${RUN_ID:-$$($(PROXY_RUN_ID))}"; echo "run $$run_id"; \
+	$(MAKE) --no-print-directory _business RUN_ID="$$run_id"
 
-# The same job, then its checks compared with the proxy's labels (fails if they disagree).
-VERIFY_LABELS := -e 's|arguments: \[|arguments: ["--verify-labels", |'
-business-smoke:
-	$(call run_business,$(VERIFY_LABELS))
+_business:
+	$(call spark_app,business-rules,jobs/business/sparkapp.yaml,-e 's|"RUN_ID"|"$(RUN_ID)"|')
+
+# The detection report over RUNS (comma-separated, default the proxy's current run), named
+# REPORT_NAME (default: the first run): lake.ofb.detection_* and s3a://lakehouse/reports/<name>/report.md.
+report:
+	@runs="$${RUNS:-$$($(PROXY_RUN_ID))}"; echo "runs $$runs"; \
+	$(MAKE) --no-print-directory _report RUNS="$$runs" REPORT_NAME="$(REPORT_NAME)" REPORT_ARGS="$(REPORT_ARGS)"
+
+# The same, failing when an invariant breaks (precision 1, conditional recall 1).
+report-smoke:
+	$(MAKE) --no-print-directory report REPORT_ARGS='"--gate", '
+
+_report:
+	$(call spark_app,detection-report,jobs/report/sparkapp.yaml,-e 's|"RUNS"|"$(RUNS)"$(if $(REPORT_NAME),$(comma) "--name"$(comma) "$(REPORT_NAME)")|' -e 's|arguments: \[|arguments: [$(REPORT_ARGS)|')
+
+# A campaign: SEEDS runs (one per defect seed) with CUSTOMERS customers, validated, checked and
+# reported together as REPORT_NAME (scripts/campaign.sh). Restores the default settings at the end.
+SEEDS ?= 3
+CUSTOMERS ?= 50
+campaign:
+	scripts/campaign.sh "$(SEEDS)" "$(CUSTOMERS)" "$(or $(REPORT_NAME),campaign-$$(date -u +%Y%m%d))"
 
 up: platform image transmitter-deploy proxy-deploy
 
