@@ -1,0 +1,43 @@
+[project]
+name = "contract-validator"
+version = "0.1.0"
+description = "Contract validator: walks the transmitter through the defect proxy and checks every response against the pinned specs"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "boto3",
+    "httpx2",
+    "openapi-core",
+    "pyyaml",
+    "werkzeug",
+]
+
+[dependency-groups]
+dev = [
+    "defect-proxy",
+    "pytest",
+    "transmitter",
+]
+
+[tool.uv.sources]
+# The tests run the validator over the proxy and the real transmitter, in process.
+defect-proxy = { path = "../proxy" }
+transmitter = { path = "../transmitter" }
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Only versions published at least two weeks before the lock was last resolved.
+exclude-newer = "2026-11-02T00:00:00Z"
+
+[tool.uv.build-backend]
+module-name = "contract_validator"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # openapi-core skips the openIdConnect scheme; security (FAPI-BR) is a later layer.
+    "ignore:Unsupported scheme type:UserWarning",
+]

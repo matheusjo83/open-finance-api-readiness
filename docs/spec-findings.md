@@ -11,8 +11,16 @@ No lint findings.
 The `x-fapi-interaction-id` response header is declared on every 2xx response but without
 `required: true`, while Accounts 2.4.2 marks it required. Its description says the transmitter
 must echo it, so a response without it breaks the standard and still passes schema validation.
-The contract validator needs an explicit echo rule (see `missing-interaction-id` in
-[defects.md](defects.md)).
+The contract validator has an explicit echo rule (`interaction-id.echo` in
+[validator.md](validator.md); see `missing-interaction-id` in [defects.md](defects.md)).
+
+## Both specifications: error responses
+
+No error response (4xx, 5xx, `default`) in either spec declares the `x-fapi-interaction-id`
+header, although the description of the request header says the transmitter must echo it, and
+must return a generated one with the 400. On Accounts, the header is required only on the 200
+responses. Schema validation therefore never notices a missing echo on an error. The echo rule
+covers it.
 
 The file starts with a UTF-8 byte order mark. Spectral accepts it; tools that read the specs
 later (mock, contract tests) must decode with `utf-8-sig` or equivalent.

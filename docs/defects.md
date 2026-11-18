@@ -30,8 +30,10 @@ measurement should show it:
   extra field is valid. Only a stricter contract check (fields not in the schema) finds it.
 - `missing-interaction-id` on Consents: the Consents 3.3.1 spec does not mark the response
   header as required (Accounts 2.4.2 does), although its description says the transmitter must
-  echo it. On Consents only an explicit echo rule finds it
+  echo it. On Consents, and on Accounts error responses, only an explicit echo rule finds it
   ([spec-findings.md](spec-findings.md)).
+
+The contract validator ([validator.md](validator.md)) has both rules.
 
 `consent-not-enforced` has a higher rate because it only applies to the few calls made with a
 non-authorised consent.

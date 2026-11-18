@@ -1,0 +1,40 @@
+# Contract validator (services/validator): one run walks the seeded resources through the defect
+# proxy, checks every response against the pinned specs and writes the results and the
+# exchanges to s3://lakehouse/{contract,exchanges}/run=<proxy run id>/ (docs/validator.md).
+# make validate deletes the previous Job and applies this one.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: contract-validator
+  namespace: ofb
+  labels: { app: contract-validator }
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels: { app: contract-validator }
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: validator
+          # Built locally and loaded into kind (make validator-image).
+          image: ofar/contract-validator:local
+          imagePullPolicy: Never
+          env:
+            - { name: TARGET, value: "http://proxy.ofb.svc" }
+            - { name: S3_ENDPOINT, value: "http://seaweedfs-all-in-one.storage.svc:8333" }
+            - { name: RESULTS_BUCKET, value: lakehouse }
+            - { name: AWS_REGION, value: us-east-1 }
+          envFrom:
+            - secretRef: { name: validator-credentials }
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
