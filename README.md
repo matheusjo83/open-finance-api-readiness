@@ -23,6 +23,7 @@ for the tool choices.
 | SeaweedFS | chart 4.54.0 | S3 object store (bucket `lakehouse`) |
 | Synthetic transmitter | Python 3.13, FastAPI (`services/transmitter`, uv.lock) | Consents and Accounts APIs over a seeded dataset |
 | Defect proxy | Python 3.13, Starlette, boto3 (`services/proxy`, uv.lock) | Injects catalogued defects, labels every exchange in S3 |
+| Contract validator | Python 3.13, openapi-core, boto3 (`services/validator`, uv.lock) | Checks every response through the proxy, results in S3 |
 
 ## Quickstart
 
@@ -30,9 +31,10 @@ Requires Docker and linux-amd64 (WSL works). `kind`, `helm`, `kubectl` and `uv` 
 into `.bin/` at pinned versions.
 
 ```bash
-make up      # cluster, platform, Spark image, synthetic transmitter, defect proxy
-make smoke   # Iceberg table written to SeaweedFS through the Postgres catalog, read back
-make down    # delete the cluster
+make up         # cluster, platform, Spark image, synthetic transmitter, defect proxy
+make smoke      # Iceberg table written to SeaweedFS through the Postgres catalog, read back
+make validate   # one contract validation run through the proxy (a Job), results in SeaweedFS
+make down       # delete the cluster
 ```
 
 `make diagnose` prints pods, events and logs when something fails.
@@ -85,6 +87,22 @@ make proxy-smoke   # walks the seeded resources through the proxy, reads the lab
 ```
 
 See [docs/defects.md](docs/defects.md) for the catalogue, the selection and the label format.
+
+## Contract validator
+
+`services/validator` walks the seeded resources through the proxy, as a Job in the `ofb`
+namespace, and checks every response against the pinned specs. It runs the schema rules
+(openapi-core), plus an `x-fapi-interaction-id` echo rule and a strict rule for undeclared
+fields. Results and the exchanges themselves go to `s3://lakehouse/contract/run=<run_id>/` and
+`s3://lakehouse/exchanges/run=<run_id>/`, under the proxy's run id.
+
+```bash
+make validator-test    # every defect class through the proxy, in process
+make validate          # one run in the cluster
+make validator-smoke   # joins its results with the proxy's labels, prints the outcome per class
+```
+
+See [docs/validator.md](docs/validator.md) for the walk, the rules and the result format.
 
 ## License
 

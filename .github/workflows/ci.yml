@@ -1,10 +1,11 @@
 # checks: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs)
-# and tests the services against them: the transmitter (make transmitter-test) and the defect
-# proxy (make proxy-test).
+# and tests the services against them: the transmitter (make transmitter-test), the defect
+# proxy (make proxy-test) and the contract validator (make validator-test).
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
 # back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
-# the cluster (the proxy's labels are read back from SeaweedFS).
+# the cluster (the proxy's labels are read back from SeaweedFS), and runs the contract validator
+# through the proxy as a Job, joining its results with the labels.
 name: CI
 
 on:
@@ -44,6 +45,9 @@ jobs:
       - name: Defect proxy tests (every class against the transmitter)
         run: make proxy-test
 
+      - name: Contract validator tests (every class through the proxy)
+        run: make validator-test
+
   platform:
     # Pinned: ubuntu-latest moves to a new release on its own.
     runs-on: ubuntu-24.04
@@ -71,6 +75,9 @@ jobs:
 
       - name: Defect proxy (image, deploy, labels in SeaweedFS)
         run: make proxy-deploy proxy-smoke
+
+      - name: Contract validator (image, Job through the proxy, results joined with the labels)
+        run: make validate validator-smoke
 
       - name: Diagnostics
         if: failure()

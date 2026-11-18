@@ -13,6 +13,7 @@ CLUSTER := open-finance
 SPARK_IMAGE := ofar/spark:local
 TRANSMITTER_IMAGE := ofar/transmitter:local
 PROXY_IMAGE := ofar/defect-proxy:local
+VALIDATOR_IMAGE := ofar/contract-validator:local
 
 KIND_VERSION := v0.33.0
 KIND_SHA256 := aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
@@ -42,8 +43,9 @@ SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IM
 
 HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
-.PHONY: tools specs lint-specs transmitter-test proxy-test cluster platform image transmitter-image \
-  transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke up smoke diagnose down
+.PHONY: tools specs lint-specs transmitter-test proxy-test validator-test cluster platform image \
+  transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
+  validator-image validate validator-smoke up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -106,6 +108,11 @@ transmitter-test: $(BIN)/uv specs
 proxy-test: $(BIN)/uv specs
 	cd services/proxy && uv run --locked pytest
 
+# The validator over the proxy and the real transmitter, in process: no finding on clean
+# responses, every contract defect found by its rule, business defects invisible to it.
+validator-test: $(BIN)/uv specs
+	cd services/validator && uv run --locked pytest
+
 cluster: tools
 	kind get clusters | grep -qx $(CLUSTER) || kind create cluster --config infra/kind/cluster.yaml
 	kubectl config use-context kind-$(CLUSTER)
@@ -165,6 +172,21 @@ proxy-deploy: proxy-image
 proxy-smoke:
 	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/proxy_smoke.py
 
+# The pinned specs go in as a named build context (they are outside services/validator).
+validator-image: cluster specs
+	docker build --build-context specs=specs/upstream -t $(VALIDATOR_IMAGE) services/validator
+	kind load docker-image $(VALIDATOR_IMAGE) --name $(CLUSTER)
+
+# One validation run through the proxy, as a Job: results and exchanges in SeaweedFS.
+validate: validator-image
+	kubectl -n ofb delete job contract-validator --ignore-not-found --wait
+	kubectl apply -f infra/k8s/validator.yaml
+	scripts/wait-job.sh ofb contract-validator 300
+
+# Joins the last run's results with the proxy's labels: the contract layer must be exact.
+validator-smoke:
+	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/validator_smoke.py
+
 up: platform image transmitter-deploy proxy-deploy
 
 # Writes an Iceberg table to SeaweedFS through the Postgres catalog and reads it back.
@@ -177,6 +199,7 @@ diagnose:
 	-kubectl get pods -A -o wide
 	-kubectl -n spark get sparkapplications -o yaml
 	-kubectl get events -A --sort-by=.lastTimestamp | tail -50
+	-kubectl -n ofb get jobs -o wide
 	-for ns in storage spark spark-operator cnpg-system ofb; do \
 	  for p in $$(kubectl -n $$ns get pods -o name); do \
 	    echo "=== $$ns/$$p"; kubectl -n $$ns logs $$p --all-containers --tail=80; done; done
