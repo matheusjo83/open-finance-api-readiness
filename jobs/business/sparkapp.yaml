@@ -1,0 +1,47 @@
+# Business-rules job (jobs/business): one validation run from s3a://lakehouse/ into the Iceberg
+# tables lake.ofb.* (docs/business-rules.md). make business-rules fills in the run id (the
+# proxy's current run unless RUN_ID is set); make business-smoke adds --verify-labels.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: business-rules
+  namespace: spark
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  # Built locally and loaded into kind (make image).
+  image: ofar/spark:local
+  imagePullPolicy: Never
+  sparkVersion: 3.5.9
+  mainApplicationFile: local:///opt/jobs/business/job.py
+  arguments: ["--run-id", "RUN_ID"]
+  deps:
+    pyFiles:
+      - local:///opt/jobs/lib/lakehouse.py
+      - local:///opt/jobs/business/rules.py
+      - local:///opt/jobs/business/verify.py
+  sparkConf:
+    # Small inputs: a few shuffle partitions instead of 200.
+    spark.sql.shuffle.partitions: "4"
+    spark.sql.session.timeZone: UTC
+  restartPolicy:
+    type: Never
+  driver:
+    cores: 1
+    memory: 1g
+    serviceAccount: spark
+    envFrom:
+      - configMapRef:
+          name: lakehouse-config
+      - secretRef:
+          name: lakehouse-credentials
+  executor:
+    instances: 1
+    cores: 1
+    memory: 1g
+    envFrom:
+      - configMapRef:
+          name: lakehouse-config
+      - secretRef:
+          name: lakehouse-credentials

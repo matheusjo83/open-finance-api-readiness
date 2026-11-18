@@ -45,7 +45,8 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs lint-specs transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke up smoke diagnose down
+  validator-image validate validator-smoke business-test business-rules business-smoke up smoke \
+  diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -172,6 +173,13 @@ proxy-deploy: proxy-image
 proxy-smoke:
 	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/proxy_smoke.py
 
+# The business rules over validation runs exported in process (transmitter, proxy, validator),
+# with a local Spark: no finding on clean runs, every business defect found by its rule.
+business-test: $(BIN)/uv specs
+	rm -rf jobs/tests/.runs
+	cd services/validator && uv run --locked python -W ignore -m tests.export_runs ../../jobs/tests/.runs
+	cd jobs && uv run --locked pytest
+
 # The pinned specs go in as a named build context (they are outside services/validator).
 validator-image: cluster specs
 	docker build --build-context specs=specs/upstream -t $(VALIDATOR_IMAGE) services/validator
@@ -186,6 +194,25 @@ validate: validator-image
 # Joins the last run's results with the proxy's labels: the contract layer must be exact.
 validator-smoke:
 	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/validator_smoke.py
+
+# The business-rules job over one run (RUN_ID, default the proxy's current run), as a
+# SparkApplication: bronze, silver and gold Iceberg tables in lake.ofb.
+PROXY_RUN_ID = kubectl -n ofb exec deploy/proxy -- python -c \
+  "import json, urllib.request; print(json.load(urllib.request.urlopen('http://localhost:8080/_proxy/run'))['run_id'])"
+define run_business
+run_id="$${RUN_ID:-$$($(PROXY_RUN_ID))}"; echo "run $$run_id"; \
+kubectl -n spark delete sparkapplication business-rules --ignore-not-found --wait; \
+sed -e "s|\"RUN_ID\"|\"$$run_id\"|" $(1) jobs/business/sparkapp.yaml | kubectl apply -f -; \
+scripts/wait-sparkapp.sh spark business-rules 600
+endef
+
+business-rules:
+	$(call run_business,)
+
+# The same job, then its checks compared with the proxy's labels (fails if they disagree).
+VERIFY_LABELS := -e 's|arguments: \[|arguments: ["--verify-labels", |'
+business-smoke:
+	$(call run_business,$(VERIFY_LABELS))
 
 up: platform image transmitter-deploy proxy-deploy
 

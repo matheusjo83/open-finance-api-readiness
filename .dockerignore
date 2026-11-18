@@ -1,3 +1,9 @@
+# Spark image (make image): only the jobs, without their test project.
 *
 !jobs/
+jobs/.venv
+jobs/tests
+jobs/pyproject.toml
+jobs/uv.lock
+jobs/.python-version
 **/__pycache__
