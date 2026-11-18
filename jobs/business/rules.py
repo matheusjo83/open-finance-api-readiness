@@ -104,15 +104,17 @@ def silver(ok: DataFrame) -> dict[str, DataFrame]:
                 .select(*keys, _account_id().alias("account_id"),
                         F.col("body.data.availableAmount.amount").cast(AMOUNT).alias("available_amount")))
 
-    # A listing: the pages of one request across page numbers (same walk, consent, path and the
-    # other query parameters).
+    # A listing: the pages of one request across page numbers (same walk, consent, path, page
+    # size and the other query parameters).
     rest = F.regexp_replace(F.regexp_replace(F.coalesce(F.col("query"), F.lit("")), r"(^|&)(page|page-size)=[^&]*", ""), r"^&", "")
+    page_size = F.coalesce(_param("page-size").cast("long"), F.lit(DEFAULT_PAGE_SIZE))
     pages = (ok.where(F.col("operation").isin(LISTINGS))
              .withColumn("body", F.from_json("response_body", LISTING_BODY))
              .select(*keys, _account_id().alias("account_id"),
-                     F.concat_ws("|", "walk_id", F.coalesce("consent", F.lit("")), "path", rest).alias("listing"),
+                     F.concat_ws("|", "walk_id", F.coalesce("consent", F.lit("")), "path", rest,
+                                 page_size.cast("string")).alias("listing"),
                      F.coalesce(_param("page").cast("long"), F.lit(1)).alias("page"),
-                     F.coalesce(_param("page-size").cast("long"), F.lit(DEFAULT_PAGE_SIZE)).alias("page_size"),
+                     page_size.alias("page_size"),
                      F.to_date(_param("fromBookingDate")).alias("from_date"),
                      F.to_date(_param("toBookingDate")).alias("to_date"),
                      F.col("body.links.next").isNotNull().alias("has_next"),
@@ -213,16 +215,17 @@ def gold(silver_tables: dict[str, DataFrame]) -> DataFrame:
     # transactions, over a complete transaction history of the account without repeated items.
     history = summary.where(F.col("complete") & (F.col("duplicated_ids") == 0)).select("listing")
     signed = F.when(F.col("credit_debit_type") == "CREDITO", F.col("amount")).otherwise(-F.col("amount"))
-    sums = (items.where(F.col("operation") == TRANSACTIONS).join(history, "listing")
-            .groupBy("walk_id", "consent", "account_id")
-            .agg(F.sum(F.when(F.col("payment_type") == "TRANSACAO_EFETIVADA", signed).otherwise(F.lit(0).cast(AMOUNT)))
-                 .alias("expected"), F.count("*").alias("transactions")))
-    # An account with no transaction at all has a complete, empty history.
-    empty = (pages.where(F.col("operation") == TRANSACTIONS).join(history, "listing")
-             .groupBy("walk_id", "consent", "account_id").agg(F.sum("item_count").alias("n")).where("n = 0")
-             .select("walk_id", "consent", "account_id", F.lit(0).cast(AMOUNT).alias("expected"),
-                     F.lit(0).cast("long").alias("transactions")))
-    bal = silver_tables["balances"].join(sums.unionByName(empty), ["walk_id", "consent", "account_id"], "left")
+    # Per usable history listing: its sum. An account can have several (page by page, and in one
+    # page of 1000): the one with the largest pages is used.
+    sums = (pages.where(F.col("operation") == TRANSACTIONS).join(history, "listing")
+            .groupBy("walk_id", "consent", "account_id", "listing").agg(F.max("page_size").alias("page_size"))
+            .join(items.where(F.col("payment_type") == "TRANSACAO_EFETIVADA")
+                  .groupBy("listing").agg(F.sum(signed).alias("total")), "listing", "left")
+            .withColumn("expected", F.coalesce("total", F.lit(0).cast(AMOUNT)))
+            .withColumn("choice", F.row_number().over(Window.partitionBy("walk_id", "consent", "account_id")
+                                                      .orderBy(F.col("page_size").desc(), "listing")))
+            .where("choice = 1").select("walk_id", "consent", "account_id", "expected"))
+    bal = silver_tables["balances"].join(sums, ["walk_id", "consent", "account_id"], "left")
     differs = F.col("available_amount") != F.col("expected")
     balance_checks = _check(bal, "balance.matches-transactions",
                             _when(differs, F.col("expected").isNull() | F.col("available_amount").isNull()),

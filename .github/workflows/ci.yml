@@ -1,13 +1,13 @@
 # checks: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs)
 # and tests the services against them: the transmitter (make transmitter-test), the defect
-# proxy (make proxy-test), the contract validator (make validator-test) and the business-rules
-# job with a local Spark (make business-test).
+# proxy (make proxy-test), the contract validator (make validator-test), and the business-rules
+# job and the detection report with a local Spark (make jobs-test).
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
 # back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
 # the cluster (the proxy's labels are read back from SeaweedFS), and runs the contract validator
-# through the proxy as a Job, joining its results with the labels, and the business-rules job
-# over that run as a SparkApplication, its checks compared with the labels.
+# through the proxy as a Job, joining its results with the labels, then the business-rules job
+# and the detection report over that run as SparkApplications (the report gates the invariants).
 name: CI
 
 on:
@@ -50,11 +50,11 @@ jobs:
       - name: Contract validator tests (every class through the proxy)
         run: make validator-test
 
-      - name: Business rules tests (local Spark over exported runs)
+      - name: Business rules and report tests (local Spark over exported runs)
         env:
           # PySpark 3.5 runs on Java 17, preinstalled on the runner.
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
-        run: make business-test
+        run: make jobs-test
 
   platform:
     # Pinned: ubuntu-latest moves to a new release on its own.
@@ -87,8 +87,11 @@ jobs:
       - name: Contract validator (image, Job through the proxy, results joined with the labels)
         run: make validate validator-smoke
 
-      - name: Business rules (SparkApplication, Iceberg tables, checks joined with the labels)
-        run: make business-smoke
+      - name: Business rules (SparkApplication, Iceberg tables)
+        run: make business-rules
+
+      - name: Detection report (SparkApplication, gate on precision and recall)
+        run: make report-smoke
 
       - name: Diagnostics
         if: failure()

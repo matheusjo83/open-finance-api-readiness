@@ -4,8 +4,7 @@
 object store and checks the responses against the domain rules the
 [transmitter guarantees](transmitter.md#invariants), which the proxy's business defects break.
 It writes bronze, silver and gold Iceberg tables (`lake.ofb.*`). It never reads the labels: the
-comparison with the ground truth is a separate test harness (`--verify-labels`), and the full
-detection report is item 5.
+comparison with the ground truth is the [detection report](report.md)'s.
 
 ## Input and gating
 
@@ -41,24 +40,25 @@ The four defect classes map to these rules:
 - `consent-not-enforced`: `consent.enforced`;
 - `transaction-outside-window`: `transactions.within-window`.
 
-A *listing* is the set of pages of one request. Its pages share the walk, the consent, the path
-and the query apart from `page` and `page-size`. A listing is complete when it has pages 1..n and
+A *listing* is the set of pages of one request. Its pages share the walk, the consent, the path,
+the page size and the query apart from `page`. A listing is complete when it has pages 1..n and
 the last one has no next link. The walk orders the calls with `seq` and reads every consent
 before using it. It also probes the next page after a full page with no next link
 ([validator.md](validator.md#the-walk)).
 
 ### What the default rates show
 
-With the default catalogue (about 25 % of the responses broken), many checks are inconclusive.
-Two cases stand out:
+With the default catalogue (about 25 % of the responses broken), some checks are inconclusive:
 
-- **Balances.** A balance needs every page of its account's history. With about five pages per
-  account, one of them is often failed by the contract layer or has a repeated item.
+- **Balances.** A balance needs the account's whole history. The walk also asks for it in one
+  page of 1000, and the rule uses the usable history with the largest pages. So one broken
+  response, not one of five, makes it inconclusive. That brought inconclusive balances from 7 of
+  9 to 3 of 9 on the default-rate test run.
 - **Consents.** When the one read of a customer's consent fails the contract layer, every
   Accounts call with that consent is inconclusive.
 
-These are limits of a layered pipeline, not errors. Item 5 should report them as such (detected,
-missed, inconclusive). It should not hide them.
+These are limits of a layered pipeline, not errors. The [report](report.md) counts them apart
+from detections and misses (strict and conditional recall).
 
 ## Tables
 
@@ -82,12 +82,11 @@ pointer into the body, or `status` (consent not enforced). Amounts are `decimal(
 ## Running it
 
 ```bash
-make business-test    # local Spark over runs exported in process (no cluster)
+make jobs-test        # local Spark over runs exported in process (no cluster)
 make business-rules   # the job over the proxy's current run (or RUN_ID=...), as a SparkApplication
-make business-smoke   # the same, then the checks compared with the proxy's labels
 ```
 
-`make business-test` first exports six runs with the validator's test harness
+`make jobs-test` first exports six runs with the validator's test harness
 (`services/validator/tests/export_runs.py`):
 
 - `clean`;
@@ -97,10 +96,3 @@ make business-smoke   # the same, then the checks compared with the proxy's labe
 It writes them to `jobs/tests/.runs/` with the object store's layout. The tests then run the
 job's transformations with a local Spark on Python 3.10, the Spark image's Python. They need
 Java 17.
-
-`--verify-labels` (`jobs/business/verify.py`) fails the job when they disagree:
-
-- an exchange with a finding carries no business defect;
-- or a business defect is neither flagged nor inconclusive.
-
-It prints the outcome per class (`VERIFY {...}`).

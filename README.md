@@ -25,6 +25,7 @@ for the tool choices.
 | Defect proxy | Python 3.13, Starlette, boto3 (`services/proxy`, uv.lock) | Injects catalogued defects, labels every exchange in S3 |
 | Contract validator | Python 3.13, openapi-core, boto3 (`services/validator`, uv.lock) | Checks every response through the proxy, results in S3 |
 | Business rules job | PySpark 3.5.9 (`jobs/business`) | Domain rules over the validator's exchanges, Iceberg tables in `lake.ofb` |
+| Detection report | PySpark 3.5.9 (`jobs/report`) | Precision and recall per layer, class and rule against the labels |
 
 ## Quickstart
 
@@ -36,6 +37,7 @@ make up              # cluster, platform, Spark image, synthetic transmitter, de
 make smoke           # Iceberg table written to SeaweedFS through the Postgres catalog, read back
 make validate        # one contract validation run through the proxy (a Job), results in SeaweedFS
 make business-rules  # business rules over that run (a SparkApplication), Iceberg tables
+make report          # precision and recall of both layers over that run, against the labels
 make down            # delete the cluster
 ```
 
@@ -115,12 +117,28 @@ pagination, consent enforcement and booking window. It writes bronze, silver and
 tables in `lake.ofb`, partitioned by run.
 
 ```bash
-make business-test    # local Spark over runs exported in process (needs Java 17)
+make jobs-test        # business rules and report, local Spark over exported runs (needs Java 17)
 make business-rules   # the job over the proxy's current run (RUN_ID=... for another)
-make business-smoke   # the same, then its checks compared with the proxy's labels
 ```
 
 See [docs/business-rules.md](docs/business-rules.md) for the rules, the gating and the tables.
+
+## Detection report
+
+`jobs/report` joins one or more runs with the proxy's labels and measures each layer. It
+reports precision per layer and per rule, and strict and conditional recall per defect class
+(inconclusive counted apart), with 95 % Wilson intervals and a matrix of who found what. The
+results go to Iceberg tables (`lake.ofb.detection_*`) and to a Markdown report in
+`s3://lakehouse/reports/<name>/`. In CI it gates the catalogue's invariants.
+
+```bash
+make report                                       # the proxy's current run
+make report-smoke                                 # the same, failing if an invariant breaks
+make campaign SEEDS=3 CUSTOMERS=50 REPORT_NAME=x  # one run per defect seed, reported together
+```
+
+See [docs/report.md](docs/report.md) for the metrics and
+[docs/detection-report.md](docs/detection-report.md) for the latest reference campaign.
 
 ## License
 
