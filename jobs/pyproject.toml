@@ -1,0 +1,22 @@
+[project]
+name = "ofar-jobs"
+version = "0.1.0"
+description = "PySpark jobs (run in the Spark image); this project only pins what their tests need"
+# The Spark image's Python (apache/spark:3.5.9 ... ubuntu: 3.10).
+requires-python = ">=3.10,<3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pyspark==3.5.9",
+    "pytest",
+]
+
+[tool.uv]
+package = false
+# Only versions published at least two weeks before the lock was last resolved.
+exclude-newer = "2026-11-02T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

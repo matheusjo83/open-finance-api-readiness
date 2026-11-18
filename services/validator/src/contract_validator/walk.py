@@ -2,10 +2,14 @@
 
 For every customer: its authorised consent, the accounts list (every page), and per account the
 detail, balances, overdraft limits, transactions over the last 12 months and the current
-transactions (every page). For the first customer, the accounts list with each non-authorised
-seeded consent, balances with the consent that lacks the permission, an unknown account, and a
-consent lifecycle (create, authorise, read, use, revoke, read again). Every Open Finance call
+transactions (every page). For the first customer, each other seeded consent is read and then
+used on the accounts list; then balances with the consent that lacks the permission, an unknown
+account, and a consent lifecycle (create, authorise, read, use, revoke, read again). A consent
+is always read before it is used, so the business rules know its state. Every Open Finance call
 carries a fresh x-fapi-interaction-id.
+
+Pages are followed through links.next. When a full page comes without one, the next page number
+is requested anyway (a careful client's probe), and the listing goes on from there.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from datetime import date, timedelta
 from typing import Any, Protocol
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from .rules import Exchange
 
@@ -25,6 +29,8 @@ PERMISSIONS = ["ACCOUNTS_READ", "ACCOUNTS_BALANCES_READ", "ACCOUNTS_TRANSACTIONS
                "ACCOUNTS_OVERDRAFT_LIMITS_READ", "RESOURCES_READ"]
 # The client-credentials token of the Consents API; the transmitter accepts any bearer there.
 CLIENT_TOKEN = "validator-client-credentials"
+# The specs' default page-size, used when the request does not set one.
+DEFAULT_PAGE_SIZE = 25
 
 
 class HttpClient(Protocol):
@@ -56,18 +62,28 @@ class Walker:
         return ex, document
 
     def pages(self, url: str, token: str) -> Iterator[Exchange]:
-        """Follows links.next (made relative: the links carry the host the transmitter saw)."""
+        """Follows links.next (made relative: the links carry the host the transmitter saw). A
+        full page without a next link is followed by a probe of the next page number, and so on
+        while the pages come back full."""
         seen = set()
         while url and url not in seen:
             seen.add(url)
             ex, document = self.call("GET", url, token)
             yield ex
-            links = document.get("links", {}) if isinstance(document, dict) and ex.status == 200 else {}
-            nxt = links.get("next") if isinstance(links, dict) else None
             url = None
+            if ex.status != 200 or not isinstance(document, dict):
+                return
+            links, data = document.get("links"), document.get("data")
+            nxt = links.get("next") if isinstance(links, dict) else None
             if isinstance(nxt, str):
                 parts = urlsplit(nxt)
                 url = parts.path + (f"?{parts.query}" if parts.query else "")
+            elif isinstance(data, list) and data:
+                query = dict(parse_qsl(ex.query))
+                page, size = int(query.get("page", 1)), int(query.get("page-size", DEFAULT_PAGE_SIZE))
+                if len(data) >= size:
+                    query.update({"page": str(page + 1), "page-size": str(size)})
+                    url = f"{ex.path}?{urlencode(query)}"
 
     def seed(self) -> dict:
         response = self.client.request("GET", "/mock/seed", headers={})
@@ -94,6 +110,7 @@ class Walker:
         account = first["accounts"][0]
         for consent in first["consents"]:
             if not consent.endswith("-authorised"):
+                yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]
                 yield self.call("GET", f"{ACCOUNTS}/accounts", consent)[0]
         no_balances = next((c for c in first["consents"] if c.endswith("-no-balances")), None)
         if no_balances:

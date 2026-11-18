@@ -11,7 +11,7 @@ detects, against defects injected on purpose (precision and recall per defect cl
 - [x] **2a. Synthetic transmitter**: Consents 3.3.1 and Accounts 2.4.2 over a seeded, coherent dataset with consent state; every response validated against the pinned specs ([transmitter.md](transmitter.md)).
 - [x] **2b. Defect proxy**: in front of the transmitter, 8 defect classes (4 contract, 4 business) chosen deterministically per request, every exchange labelled (ground truth) as JSONL in the object store ([defects.md](defects.md)).
 - [x] **3. Contract validator**: walks the seeded resources through the proxy, checks every response against the pinned specs (openapi-core) plus an `x-fapi-interaction-id` echo rule and a strict rule for undeclared fields; results and exchanges as JSONL in the object store, keyed like the labels ([validator.md](validator.md)).
-- [ ] **4. Business rules job**: PySpark reads the exchanges the validator recorded, applies the rules, writes findings to Iceberg tables.
+- [x] **4. Business rules job**: PySpark reads the exchanges the validator recorded (S3A), skips what the contract layer failed, applies one rule per business defect class, writes bronze, silver and gold Iceberg tables partitioned by run ([business-rules.md](business-rules.md)).
 - [ ] **5. Detection report**: precision and recall per defect class.
 
 ## Later

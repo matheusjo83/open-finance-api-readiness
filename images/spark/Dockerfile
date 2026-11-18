@@ -1,5 +1,7 @@
 # PySpark image for the jobs: Spark 3.5.9 (Scala 2.12, Java 17), Iceberg 1.12.0 with the
-# AWS bundle (S3FileIO) and the Postgres JDBC driver (JDBC catalog). Jars pinned by SHA-256.
+# AWS bundle (S3FileIO) and the Postgres JDBC driver (JDBC catalog), and the S3A connector
+# (hadoop-aws, matching the bundled Hadoop 3.3.4, with the AWS SDK v1 it was built against) to
+# read the validator's and the proxy's JSONL. Jars pinned by SHA-256.
 # Build context: the repository root (make image).
 FROM apache/spark:3.5.9-scala2.12-java17-python3-ubuntu
 
@@ -13,6 +15,12 @@ ADD --checksum=sha256:dd7e49ffa4ac9b215bed846581991259e3aec9bb2fa08d6cec029c46cd
     /opt/spark/jars/
 ADD --checksum=sha256:73914527305a40cce504b0d3d90b23caf565136912d607ae8ae7c5895512332c \
     https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.14/postgresql-42.7.14.jar \
+    /opt/spark/jars/
+ADD --checksum=sha256:53f9ae03c681a30a50aa17524bd9790ab596b28481858e54efd989a826ed3a4a \
+    https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar \
+    /opt/spark/jars/
+ADD --checksum=sha256:873fe7cf495126619997bec21c44de5d992544aea7e632fdc77adb1a0915bae5 \
+    https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar \
     /opt/spark/jars/
 RUN chmod 644 /opt/spark/jars/*.jar
 

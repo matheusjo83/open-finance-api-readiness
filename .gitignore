@@ -11,3 +11,6 @@ __pycache__/
 
 # Official specifications downloaded by make specs (upstream declares no license)
 specs/upstream/
+
+# Validation runs exported for the jobs' tests (make business-test)
+jobs/tests/.runs/

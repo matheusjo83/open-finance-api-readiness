@@ -1,4 +1,5 @@
-"""Spark session wired to the lakehouse: Iceberg tables in SeaweedFS (S3), catalog in Postgres.
+"""Spark session wired to the lakehouse: Iceberg tables in SeaweedFS (S3), catalog in Postgres,
+and s3a:// paths (the JSONL the proxy and the validator write) through the S3A connector.
 
 Settings come from the environment, filled by the lakehouse-config ConfigMap and the
 lakehouse-credentials Secret (infra/k8s/). Shipped to the jobs through deps.pyFiles.
@@ -29,6 +30,14 @@ def session(app_name: str) -> SparkSession:
         f"{prefix}.s3.access-key-id": env["S3_ACCESS_KEY_ID"],
         f"{prefix}.s3.secret-access-key": env["S3_SECRET_ACCESS_KEY"],
         f"{prefix}.client.region": env["AWS_REGION"],
+        # S3A, for spark.read on s3a://lakehouse/... (labels, contract, exchanges).
+        "spark.hadoop.fs.s3a.endpoint": env["S3_ENDPOINT"],
+        "spark.hadoop.fs.s3a.endpoint.region": env["AWS_REGION"],
+        "spark.hadoop.fs.s3a.path.style.access": "true",
+        "spark.hadoop.fs.s3a.connection.ssl.enabled": str(env["S3_ENDPOINT"].startswith("https")).lower(),
+        "spark.hadoop.fs.s3a.access.key": env["S3_ACCESS_KEY_ID"],
+        "spark.hadoop.fs.s3a.secret.key": env["S3_SECRET_ACCESS_KEY"],
+        "spark.hadoop.fs.s3a.aws.credentials.provider": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
     }
     builder = SparkSession.builder.appName(app_name)
     for key, value in conf.items():

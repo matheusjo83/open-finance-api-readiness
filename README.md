@@ -17,13 +17,14 @@ for the tool choices.
 |---|---|---|
 | kind | v0.33.0 (Kubernetes v1.37.0) | Local cluster: one control plane, one worker |
 | Kubeflow Spark Operator | chart 2.6.0 | Runs `SparkApplication`s in the `spark` namespace |
-| Spark | 3.5.9 (Scala 2.12, Java 17) | PySpark jobs (`images/spark`) |
+| Spark | 3.5.9 (Scala 2.12, Java 17), S3A (hadoop-aws 3.3.4) | PySpark jobs (`images/spark`) |
 | Apache Iceberg | 1.12.0 | Table format, JDBC catalog, S3FileIO |
 | CloudNativePG | chart 0.29.1 (operator 1.30.1, Postgres 18.6) | Iceberg catalog database |
 | SeaweedFS | chart 4.54.0 | S3 object store (bucket `lakehouse`) |
 | Synthetic transmitter | Python 3.13, FastAPI (`services/transmitter`, uv.lock) | Consents and Accounts APIs over a seeded dataset |
 | Defect proxy | Python 3.13, Starlette, boto3 (`services/proxy`, uv.lock) | Injects catalogued defects, labels every exchange in S3 |
 | Contract validator | Python 3.13, openapi-core, boto3 (`services/validator`, uv.lock) | Checks every response through the proxy, results in S3 |
+| Business rules job | PySpark 3.5.9 (`jobs/business`) | Domain rules over the validator's exchanges, Iceberg tables in `lake.ofb` |
 
 ## Quickstart
 
@@ -31,10 +32,11 @@ Requires Docker and linux-amd64 (WSL works). `kind`, `helm`, `kubectl` and `uv` 
 into `.bin/` at pinned versions.
 
 ```bash
-make up         # cluster, platform, Spark image, synthetic transmitter, defect proxy
-make smoke      # Iceberg table written to SeaweedFS through the Postgres catalog, read back
-make validate   # one contract validation run through the proxy (a Job), results in SeaweedFS
-make down       # delete the cluster
+make up              # cluster, platform, Spark image, synthetic transmitter, defect proxy
+make smoke           # Iceberg table written to SeaweedFS through the Postgres catalog, read back
+make validate        # one contract validation run through the proxy (a Job), results in SeaweedFS
+make business-rules  # business rules over that run (a SparkApplication), Iceberg tables
+make down            # delete the cluster
 ```
 
 `make diagnose` prints pods, events and logs when something fails.
@@ -103,6 +105,22 @@ make validator-smoke   # joins its results with the proxy's labels, prints the o
 ```
 
 See [docs/validator.md](docs/validator.md) for the walk, the rules and the result format.
+
+## Business rules job
+
+`jobs/business` is a PySpark job (SparkApplication) over one validation run. It reads the
+validator's exchange log and contract results through S3A and leaves out what the contract layer
+failed. It applies one rule per business defect class: balance against transactions,
+pagination, consent enforcement and booking window. It writes bronze, silver and gold Iceberg
+tables in `lake.ofb`, partitioned by run.
+
+```bash
+make business-test    # local Spark over runs exported in process (needs Java 17)
+make business-rules   # the job over the proxy's current run (RUN_ID=... for another)
+make business-smoke   # the same, then its checks compared with the proxy's labels
+```
+
+See [docs/business-rules.md](docs/business-rules.md) for the rules, the gating and the tables.
 
 ## License
 

@@ -33,12 +33,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def result_record(run_id: str, walk_id: str, spec: Spec, ex: Exchange) -> dict[str, Any]:
+def result_record(run_id: str, walk_id: str, seq: int, spec: Spec, ex: Exchange) -> dict[str, Any]:
     op, findings = check(spec, ex)
     rules = sorted({f.rule for f in findings})
     severities = {f.severity for f in findings}
     return {
-        "run_id": run_id, "walk_id": walk_id, "ts": _now(), "interaction_id": ex.interaction_id,
+        "run_id": run_id, "walk_id": walk_id, "seq": seq, "ts": _now(), "interaction_id": ex.interaction_id,
         "method": ex.method, "path": ex.path, "query": ex.query or None,
         "api": spec.name, "operation": op.id if op else None, "status": ex.status,
         "verdict": "fail" if "error" in severities else "warn" if severities else "pass",
@@ -46,9 +46,9 @@ def result_record(run_id: str, walk_id: str, spec: Spec, ex: Exchange) -> dict[s
     }
 
 
-def exchange_record(run_id: str, walk_id: str, ex: Exchange, operation: str | None) -> dict[str, Any]:
+def exchange_record(run_id: str, walk_id: str, seq: int, ex: Exchange, operation: str | None) -> dict[str, Any]:
     return {
-        "run_id": run_id, "walk_id": walk_id, "ts": _now(), "interaction_id": ex.interaction_id,
+        "run_id": run_id, "walk_id": walk_id, "seq": seq, "ts": _now(), "interaction_id": ex.interaction_id,
         "method": ex.method, "path": ex.path, "query": ex.query or None, "operation": operation,
         "request_headers": {k: v for k, v in ex.request_headers.items() if k != "authorization"},
         "consent": ex.request_headers.get("authorization", "")[7:] or None,
@@ -65,13 +65,15 @@ def run(client: HttpClient, specs: list[Spec], store: Store, run_id: str | None 
     results = PartWriter(store, f"contract/run={run_id}/", walk_id)
     exchanges = PartWriter(store, f"exchanges/run={run_id}/", walk_id)
     verdicts, by_rule = collections.Counter(), collections.Counter()
+    seq = 0
     for ex in (walker or Walker(client)).walk():
         spec = spec_for(specs, ex.path)
         if spec is None:
             continue
-        record = result_record(run_id, walk_id, spec, ex)
+        seq += 1
+        record = result_record(run_id, walk_id, seq, spec, ex)
         results.add(record)
-        exchanges.add(exchange_record(run_id, walk_id, ex, record["operation"]))
+        exchanges.add(exchange_record(run_id, walk_id, seq, ex, record["operation"]))
         verdicts[record["verdict"]] += 1
         by_rule.update(record["rules"])
     results.flush()

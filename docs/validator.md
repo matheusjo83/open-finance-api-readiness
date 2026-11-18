@@ -16,12 +16,18 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
 - per customer: its authorised consent (`GET /consents/{consentId}`), the accounts list (every
   page), and per account the detail, balances, overdraft limits, transactions over the last 12
   months and the current transactions (every page, following `links.next`);
-- for the first customer: the accounts list with each non-authorised seeded consent (401),
-  balances with the consent that lacks the permission (403), an unknown account (404), and a
-  consent lifecycle: create (201), authorise (`/mock`), read, use, revoke (204), read again.
+- for the first customer: each other seeded consent is read, then used on the accounts list
+  (401 when it is not authorised); balances with the consent that lacks the permission (403),
+  an unknown account (404), and a consent lifecycle: create (201), authorise (`/mock`), read,
+  use, revoke (204), read again.
+
+A consent is always read before it is used, so the business rules know its state
+([business-rules.md](business-rules.md)). When a full page comes without `links.next`, the walk
+asks for the next page number anyway, a careful client's probe. A dropped next link then
+shows up as a later page with items.
 
 It covers the 9 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
-id joins the result with the proxy's label. With 5 customers it makes about 130 calls.
+id joins the result with the proxy's label. With 5 customers it makes about 140 calls.
 
 The defects the proxy draws depend on the requests (decision 17), and the walk is fixed, so two
 runs over the same seed see the same defects. A defect can also change the walk. For example,
@@ -76,6 +82,7 @@ Results:
 | Field | Meaning |
 |---|---|
 | `run_id`, `walk_id`, `ts` | The run, the walk, when the result was written (UTC, milliseconds) |
+| `seq` | The call's position in the walk (1, 2, ...): the order the business rules rely on |
 | `interaction_id` | The `x-fapi-interaction-id` sent: the join key with the labels |
 | `method`, `path`, `query` | The request |
 | `api`, `operation` | The spec (`accounts-2.4.2`) and its `operationId`, or null outside the spec |
@@ -84,7 +91,7 @@ Results:
 | `rules` | The distinct rules that fired |
 | `findings` | `{rule, severity, pointer, message}`; `pointer` is a JSON pointer into the body, `header:<name>`, `status`, `content-type` or `operation` |
 
-Exchanges carry `run_id`, `walk_id`, `ts`, `interaction_id`, `method`, `path`, `query`,
+Exchanges carry `run_id`, `walk_id`, `seq`, `ts`, `interaction_id`, `method`, `path`, `query`,
 `operation`, `consent` (the bearer token), `request_headers` (without `authorization`),
 `request_body`, `status`, `response_headers` and `response_body`. The bodies are kept as text,
 so each route can be parsed with its own schema.
