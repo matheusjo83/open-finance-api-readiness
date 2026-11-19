@@ -17,10 +17,15 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
   page), and per account the detail, balances, overdraft limits, transactions over the last 12
   months (every page, following `links.next`, then again in one page of 1000 for the balance
   reconciliation) and the current transactions (every page);
-- for the first customer: each other seeded consent is read, then used on the accounts list
-  (401 when it is not authorised); balances with the consent that lacks the permission (403),
-  an unknown account (404), and a consent lifecycle: create (201), authorise (`/mock`), read,
-  use, revoke (204), read again.
+- per customer, each of its other seeded consents (expired, revoked, without balances,
+  awaiting) is read, then used on the accounts list and on every balance. That gives a 401 when
+  the consent is not authorised, and a 403 for the balances of the consent without the
+  permission;
+- per customer, `BALANCE_CONSENTS` (default 2) new consents are created (201), authorised
+  (`/mock`) and read, and each reads every balance again. A request of its own means a draw of
+  its own, so the balance rule gets more independent cases;
+- for the first customer: an unknown account (404), and a consent lifecycle: create, authorise,
+  read, use, revoke (204), read again.
 
 A consent is always read before it is used, so the business rules know its state
 ([business-rules.md](business-rules.md)). When a full page comes without `links.next`, the walk
@@ -28,7 +33,8 @@ asks for the next page number anyway, a careful client's probe. A dropped next l
 shows up as a later page with items.
 
 It covers the 9 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
-id joins the result with the proxy's label. With 5 customers it makes about 150 calls.
+id joins the result with the proxy's label. With 5 customers it makes about 270 calls;
+with 50, about 2,400.
 
 The defects the proxy draws depend on the requests (decision 17), and the walk is fixed, so two
 runs over the same seed see the same defects. A defect can also change the walk. For example,
@@ -102,6 +108,7 @@ so each route can be parsed with its own schema.
 | Variable | Default | |
 |---|---|---|
 | `TARGET` | `http://proxy.ofb.svc` | What to walk |
+| `BALANCE_CONSENTS` | `2` | New consents per customer that read every balance again |
 | `SPECS_DIR` | `/app/specs` | The pinned specs (baked into the local image by `make validator-image`) |
 | `RUN_ID` | the proxy's, else generated | Prefix when the target is not the proxy |
 | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `RESULTS_BUCKET`, `AWS_REGION` | SeaweedFS, `lakehouse` | Result store (`validator-credentials` Secret) |

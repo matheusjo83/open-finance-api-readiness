@@ -190,7 +190,7 @@ validator-image: cluster specs
 validate: validator-image
 	kubectl -n ofb delete job contract-validator --ignore-not-found --wait
 	kubectl apply -f infra/k8s/validator.yaml
-	scripts/wait-job.sh ofb contract-validator 300
+	scripts/wait-job.sh ofb contract-validator 900
 
 # Joins the last run's results with the proxy's labels: the contract layer must be exact.
 validator-smoke:

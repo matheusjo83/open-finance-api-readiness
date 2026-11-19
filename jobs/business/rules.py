@@ -75,6 +75,21 @@ def _account_id() -> Column:
     return F.nullif(F.regexp_extract("path", r"/accounts/v\d+/accounts/([^/]+)", 1), F.lit(""))
 
 
+def _listing() -> Column:
+    """The listing an exchange belongs to: walk, consent, path, page size and the query apart
+    from page."""
+    rest = F.regexp_replace(F.regexp_replace(F.coalesce(F.col("query"), F.lit("")), r"(^|&)(page|page-size)=[^&]*", ""), r"^&", "")
+    return F.concat_ws("|", "walk_id", F.coalesce("consent", F.lit("")), "path", rest, _page_size().cast("string"))
+
+
+def _page_size() -> Column:
+    return F.coalesce(_param("page-size").cast("long"), F.lit(DEFAULT_PAGE_SIZE))
+
+
+def _page() -> Column:
+    return F.coalesce(_param("page").cast("long"), F.lit(1))
+
+
 def bronze(exchanges: DataFrame, contract: DataFrame) -> dict[str, DataFrame]:
     return {
         "exchanges": exchanges.withColumn("ts", F.to_timestamp("ts")),
@@ -106,15 +121,10 @@ def silver(ok: DataFrame) -> dict[str, DataFrame]:
 
     # A listing: the pages of one request across page numbers (same walk, consent, path, page
     # size and the other query parameters).
-    rest = F.regexp_replace(F.regexp_replace(F.coalesce(F.col("query"), F.lit("")), r"(^|&)(page|page-size)=[^&]*", ""), r"^&", "")
-    page_size = F.coalesce(_param("page-size").cast("long"), F.lit(DEFAULT_PAGE_SIZE))
     pages = (ok.where(F.col("operation").isin(LISTINGS))
              .withColumn("body", F.from_json("response_body", LISTING_BODY))
-             .select(*keys, _account_id().alias("account_id"),
-                     F.concat_ws("|", "walk_id", F.coalesce("consent", F.lit("")), "path", rest,
-                                 page_size.cast("string")).alias("listing"),
-                     F.coalesce(_param("page").cast("long"), F.lit(1)).alias("page"),
-                     page_size.alias("page_size"),
+             .select(*keys, _account_id().alias("account_id"), _listing().alias("listing"),
+                     _page().alias("page"), _page_size().alias("page_size"),
                      F.to_date(_param("fromBookingDate")).alias("from_date"),
                      F.to_date(_param("toBookingDate")).alias("to_date"),
                      F.col("body.links.next").isNotNull().alias("has_next"),
@@ -192,14 +202,21 @@ def gold(silver_tables: dict[str, DataFrame]) -> DataFrame:
                         F.when(F.col("first_repeat").isNotNull(), F.concat(F.lit("repeats "), "repeated_id")))
 
     # pagination.missing-next: no next link although a later page exists (totalPages, or a later
-    # page of the listing with items, which the walk probes for).
+    # page of the listing with items, which the walk probes for). When the only later page was
+    # left out by the contract layer, a full page without a next link cannot be judged.
     later = (pages.where("item_count > 0").select("listing", F.col("page").alias("later_page")))
     has_later = (pages.join(later, "listing").where(F.col("later_page") > F.col("page"))
                  .groupBy("interaction_id").agg(F.min("later_page").alias("later_page")))
-    nxt = pages.join(has_later, "interaction_id", "left")
+    excluded = silver_tables["excluded_pages"].select("listing", F.col("page").alias("excluded_page"))
+    has_excluded = (pages.join(excluded, "listing").where(F.col("excluded_page") > F.col("page"))
+                    .groupBy("interaction_id").agg(F.min("excluded_page").alias("excluded_page")))
+    nxt = pages.join(has_later, "interaction_id", "left").join(has_excluded, "interaction_id", "left")
     missing = ~F.col("has_next") & (F.col("later_page").isNotNull()
                                     | (F.col("total_pages").isNotNull() & (F.col("page") < F.col("total_pages"))))
-    next_checks = _check(nxt, "pagination.missing-next", _when(missing), F.when(missing, F.lit("/links/next")),
+    undecided = (~F.col("has_next") & (F.col("item_count") >= F.col("page_size"))
+                 & F.col("excluded_page").isNotNull())
+    next_checks = _check(nxt, "pagination.missing-next", _when(missing, ~missing & undecided),
+                         F.when(missing, F.lit("/links/next")),
                          F.when(missing, F.format_string("page %d of the listing has no next link", "page")))
 
     # pagination.total-records: meta.totalRecords equals the items of the complete listing.
@@ -213,19 +230,20 @@ def gold(silver_tables: dict[str, DataFrame]) -> DataFrame:
 
     # balance.matches-transactions: availableAmount equals the signed sum of the completed
     # transactions, over a complete transaction history of the account without repeated items.
+    # The balance belongs to the account, so the history may come from any consent of the walk.
     history = summary.where(F.col("complete") & (F.col("duplicated_ids") == 0)).select("listing")
     signed = F.when(F.col("credit_debit_type") == "CREDITO", F.col("amount")).otherwise(-F.col("amount"))
     # Per usable history listing: its sum. An account can have several (page by page, and in one
     # page of 1000): the one with the largest pages is used.
     sums = (pages.where(F.col("operation") == TRANSACTIONS).join(history, "listing")
-            .groupBy("walk_id", "consent", "account_id", "listing").agg(F.max("page_size").alias("page_size"))
+            .groupBy("walk_id", "account_id", "listing").agg(F.max("page_size").alias("page_size"))
             .join(items.where(F.col("payment_type") == "TRANSACAO_EFETIVADA")
                   .groupBy("listing").agg(F.sum(signed).alias("total")), "listing", "left")
             .withColumn("expected", F.coalesce("total", F.lit(0).cast(AMOUNT)))
-            .withColumn("choice", F.row_number().over(Window.partitionBy("walk_id", "consent", "account_id")
+            .withColumn("choice", F.row_number().over(Window.partitionBy("walk_id", "account_id")
                                                       .orderBy(F.col("page_size").desc(), "listing")))
-            .where("choice = 1").select("walk_id", "consent", "account_id", "expected"))
-    bal = silver_tables["balances"].join(sums, ["walk_id", "consent", "account_id"], "left")
+            .where("choice = 1").select("walk_id", "account_id", "expected"))
+    bal = silver_tables["balances"].join(sums, ["walk_id", "account_id"], "left")
     differs = F.col("available_amount") != F.col("expected")
     balance_checks = _check(bal, "balance.matches-transactions",
                             _when(differs, F.col("expected").isNull() | F.col("available_amount").isNull()),
@@ -260,5 +278,9 @@ def build(exchanges: DataFrame, contract: DataFrame) -> dict[str, DataFrame]:
     tables.update(silver(ok))
     accounts_calls = ok.where(F.col("operation").startswith("accountsGet") & (F.col("status") == 200)
                               & F.col("consent").isNotNull())
-    tables["business_checks"] = gold({**tables, "accounts_calls": accounts_calls})
+    # Listing pages the contract layer left out (any status): only their place in the listing.
+    excluded_pages = (tables["exchanges"].join(ok.select("interaction_id"), "interaction_id", "left_anti")
+                      .where(F.col("operation").isin(LISTINGS))
+                      .select("interaction_id", _listing().alias("listing"), _page().alias("page")))
+    tables["business_checks"] = gold({**tables, "accounts_calls": accounts_calls, "excluded_pages": excluded_pages})
     return tables

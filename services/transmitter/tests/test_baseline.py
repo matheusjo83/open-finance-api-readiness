@@ -82,18 +82,23 @@ def test_awaiting_consent_is_rejected_after_60_minutes(api, seed, clock):
 
 
 def test_seeded_non_happy_consents(api, seed):
-    first = seed["customers"][0]
-    by_suffix = {c.rsplit("-", 1)[-1]: c for c in first["consents"]}
-    account = first["accounts"][0]
+    """Every customer has the four non-happy consents, after its authorised one."""
+    for n, customer in enumerate(seed["customers"], start=1):
+        assert customer["consents"] == [f"urn:transmitter:seed-{n}-{s}" for s in
+                                        ("authorised", "expired", "revoked", "no-balances", "awaiting")]
+        by_suffix = {c.rsplit("-", 1)[-1]: c for c in customer["consents"]}
+        account = customer["accounts"][0]
 
-    expired = api.get(f"{CONSENTS}/consents/{by_suffix['expired']}").json()["data"]
-    assert expired["status"] == "REJECTED"
-    assert expired["rejection"]["reason"]["code"] == "CONSENT_MAX_DATE_REACHED"
-    assert api.get(f"{ACCOUNTS}/accounts", token=by_suffix["expired"]).status_code == 401
-    assert api.get(f"{ACCOUNTS}/accounts", token=by_suffix["revoked"]).status_code == 401
-    assert api.get(f"{ACCOUNTS}/accounts", token=by_suffix["awaiting"]).status_code == 401
-    assert api.get(f"{ACCOUNTS}/accounts", token=by_suffix["balances"]).status_code == 200
-    assert api.get(f"{ACCOUNTS}/accounts/{account}/balances", token=by_suffix["balances"]).status_code == 403
+        expired = api.get(f"{CONSENTS}/consents/{by_suffix['expired']}").json()["data"]
+        assert expired["status"] == "REJECTED"
+        assert expired["rejection"]["reason"]["code"] == "CONSENT_MAX_DATE_REACHED"
+        assert api.get(f"{CONSENTS}/consents/{by_suffix['revoked']}").json()["data"]["status"] == "REJECTED"
+        assert api.get(f"{CONSENTS}/consents/{by_suffix['awaiting']}").json()["data"]["status"] == "AWAITING_AUTHORISATION"
+        for suffix in ("expired", "revoked", "awaiting"):
+            assert api.get(f"{ACCOUNTS}/accounts", token=by_suffix[suffix]).status_code == 401
+            assert api.get(f"{ACCOUNTS}/accounts/{account}/balances", token=by_suffix[suffix]).status_code == 401
+        assert api.get(f"{ACCOUNTS}/accounts", token=by_suffix["balances"]).status_code == 200
+        assert api.get(f"{ACCOUNTS}/accounts/{account}/balances", token=by_suffix["balances"]).status_code == 403
 
 
 def test_error_responses_validate(api, seed):

@@ -20,8 +20,8 @@ dev = [
 
 [tool.uv.sources]
 # The tests run the validator over the proxy and the real transmitter, in process.
-defect-proxy = { path = "../proxy" }
-transmitter = { path = "../transmitter" }
+defect-proxy = { path = "../proxy", editable = true }
+transmitter = { path = "../transmitter", editable = true }
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]

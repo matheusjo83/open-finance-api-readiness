@@ -121,15 +121,15 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "defect-proxy", directory = "../proxy" },
+    { name = "defect-proxy", editable = "../proxy" },
     { name = "pytest" },
-    { name = "transmitter", directory = "../transmitter" },
+    { name = "transmitter", editable = "../transmitter" },
 ]
 
 [[package]]
 name = "defect-proxy"
 version = "0.1.0"
-source = { directory = "../proxy" }
+source = { editable = "../proxy" }
 dependencies = [
     { name = "boto3" },
     { name = "httpx2" },
@@ -150,7 +150,7 @@ dev = [
     { name = "openapi-core" },
     { name = "pytest" },
     { name = "pyyaml" },
-    { name = "transmitter", directory = "../transmitter" },
+    { name = "transmitter", editable = "../transmitter" },
 ]
 
 [[package]]
@@ -644,7 +644,7 @@ wheels = [
 [[package]]
 name = "transmitter"
 version = "0.1.0"
-source = { directory = "../transmitter" }
+source = { editable = "../transmitter" }
 dependencies = [
     { name = "fastapi" },
     { name = "uvicorn" },

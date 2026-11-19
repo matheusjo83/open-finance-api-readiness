@@ -25,9 +25,9 @@ way, or is incomplete, the rule reports `inconclusive` instead of guessing.
 
 | Rule | Evaluated on | Finding when | Inconclusive when |
 |---|---|---|---|
-| `balance.matches-transactions` | each balances response | `availableAmount` ≠ the signed sum (credits minus debits) of the account's `TRANSACAO_EFETIVADA` transactions | no complete transaction history for the account in the same walk and consent: a page missing, excluded, or with a repeated item |
+| `balance.matches-transactions` | each balances response | `availableAmount` ≠ the signed sum (credits minus debits) of the account's `TRANSACAO_EFETIVADA` transactions | no complete transaction history for the account in the same walk (from any consent: the balance belongs to the account): a page missing, excluded, or with a repeated item |
 | `pagination.duplicate-item` | each page of a listing | an item id (`transactionId`, `accountId`) already appeared earlier in the listing | — |
-| `pagination.missing-next` | each page | no `links.next`, although `meta.totalPages` is larger or a later page of the listing has items | — |
+| `pagination.missing-next` | each page | no `links.next`, although `meta.totalPages` is larger or a later page of the listing has items | a full page without `links.next` whose later pages were all left out by the contract layer |
 | `pagination.total-records` | each page with `meta.totalRecords` | it differs from the items of the whole listing | the listing is incomplete |
 | `consent.enforced` | each 200 from Accounts | the consent's last read before the call (`GET /consents/{id}`) is not `AUTHORISED`, or its `expirationDateTime` has passed | no earlier read of the consent passed the contract layer |
 | `transactions.within-window` | each transactions page | a `transactionDateTime` falls outside `fromBookingDate..toBookingDate` | the query has no window |
