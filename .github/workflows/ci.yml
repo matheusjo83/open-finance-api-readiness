@@ -93,6 +93,19 @@ jobs:
       - name: Detection report (SparkApplication, gate on precision and recall)
         run: make report-smoke
 
+      # The run's labels, contract results, exchanges and detection report, and the jobs' logs.
+      - name: Collect reports
+        if: always()
+        run: make reports || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          if-no-files-found: ignore
+          path: reports/
+
       - name: Diagnostics
         if: failure()
         run: make diagnose

@@ -46,8 +46,8 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs lint-specs transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign up \
-  smoke diagnose down
+  validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign reports \
+  up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
@@ -242,6 +242,16 @@ smoke:
 	kubectl -n spark delete sparkapplication smoke --ignore-not-found --wait
 	kubectl apply -f jobs/smoke/sparkapp.yaml
 	scripts/wait-sparkapp.sh spark smoke 600
+
+# The current run's data (labels, contract results, exchanges, detection report, from the
+# object store) and the logs of its jobs, in reports/: what CI uploads as the `reports` artifact.
+reports:
+	rm -rf reports && mkdir -p reports/logs
+	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/collect_reports.py | tar -xzf - -C reports
+	-kubectl -n ofb logs job/contract-validator > reports/logs/contract-validator.log
+	-kubectl -n spark logs business-rules-driver > reports/logs/business-rules.log
+	-kubectl -n spark logs detection-report-driver > reports/logs/detection-report.log
+	find reports -type f | LC_ALL=C sort
 
 diagnose:
 	-kubectl get pods -A -o wide

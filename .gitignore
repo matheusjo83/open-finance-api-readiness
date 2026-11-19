@@ -14,3 +14,6 @@ specs/upstream/
 
 # Validation runs exported for the jobs' tests (make business-test)
 jobs/tests/.runs/
+
+# What make reports collects (uploaded by CI as the reports artifact)
+reports/

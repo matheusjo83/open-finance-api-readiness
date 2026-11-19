@@ -41,7 +41,28 @@ make report          # precision and recall of both layers over that run, agains
 make down            # delete the cluster
 ```
 
-`make diagnose` prints pods, events and logs when something fails.
+`make diagnose` prints pods, events and logs when something fails. `make reports` collects the
+current run's data (labels, contract results, exchanges, detection report) and the jobs' logs
+into `reports/`. CI uploads it as the `reports` artifact.
+
+## Results
+
+The reference campaign of 2026-11-18 had 3 defect seeds and 50 synthetic customers, 3,798
+exchanges in all ([docs/detection-report.md](docs/detection-report.md)):
+
+| Layer | Precision | Recall (strict) | Recall (conditional) | Defects |
+|---|---|---|---|---|
+| Contract | 100 % [99–100] | 100 % [99–100] | 100 % | 692 |
+| Business | 100 % [99–100] | 99.7 % [98–100] | 100 % | 296 (1 inconclusive) |
+
+Intervals: 95 % Wilson. Two contract defects pass plain schema validation:
+
+- an undeclared field: only the strict rule finds it;
+- a missing `x-fapi-interaction-id` on Consents and on Accounts errors: only the echo rule finds
+  it.
+
+`consent-not-enforced` (3) and `inconsistent-balance` (10) have few positives, so their intervals
+are wide.
 
 ## Specifications
 
