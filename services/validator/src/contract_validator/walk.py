@@ -2,10 +2,12 @@
 
 For every customer: its authorised consent, the accounts list (every page), and per account the
 detail, balances, overdraft limits, transactions over the last 12 months (page by page, then
-again in one page of 1000) and the current transactions (every page). For the first customer, each other seeded consent is read and then
-used on the accounts list; then balances with the consent that lacks the permission, an unknown
-account, and a consent lifecycle (create, authorise, read, use, revoke, read again). A consent
-is always read before it is used, so the business rules know its state. Every Open Finance call
+again in one page of 1000) and the current transactions (every page); then each of the customer's other seeded consents (expired, revoked,
+without balances, awaiting) is read and used on the accounts list and every balance; then
+`balance_consents` new consents are created, authorised and read, and each reads every balance
+again (a request of its own, so a draw of its own). For the first customer, an unknown account
+and a consent lifecycle (create, authorise, read, use, revoke, read again). A consent is always
+read before it is used, so the business rules know its state. Every Open Finance call
 carries a fresh x-fapi-interaction-id.
 
 Pages are followed through links.next. When a full page comes without one, the next page number
@@ -38,8 +40,8 @@ class HttpClient(Protocol):
 
 
 class Walker:
-    def __init__(self, client: HttpClient, today: Callable[[], date] = date.today) -> None:
-        self.client, self.today = client, today
+    def __init__(self, client: HttpClient, today: Callable[[], date] = date.today, balance_consents: int = 2) -> None:
+        self.client, self.today, self.balance_consents = client, today, balance_consents
 
     def call(self, method: str, url: str, token: str | None, body: dict | None = None) -> tuple[Exchange, Any]:
         parts = urlsplit(url)
@@ -108,31 +110,48 @@ class Walker:
                 # reconciliation: one response to break instead of one per page.
                 yield from self.pages(f"{base}/transactions?{window}&page-size={MAX_PAGE_SIZE}", token)
                 yield from self.pages(f"{base}/transactions-current?{current}", token)
+            # The customer's other seeded consents (expired, revoked, without balances, awaiting):
+            # read, then used on the accounts list and every balance.
+            for consent in customer["consents"]:
+                if consent != token:
+                    yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]
+                    yield self.call("GET", f"{ACCOUNTS}/accounts", consent)[0]
+                    for account in customer["accounts"]:
+                        yield self.call("GET", f"{ACCOUNTS}/accounts/{account}/balances", consent)[0]
+            # More balance reads, each with a consent of its own (a request of its own).
+            for _ in range(self.balance_consents):
+                consent = None
+                for ex, consent in self.authorised_consent(customer["cpf"]):
+                    yield ex
+                if consent:
+                    for account in customer["accounts"]:
+                        yield self.call("GET", f"{ACCOUNTS}/accounts/{account}/balances", consent)[0]
 
         first = seed["customers"][0]
-        account = first["accounts"][0]
-        for consent in first["consents"]:
-            if not consent.endswith("-authorised"):
-                yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]
-                yield self.call("GET", f"{ACCOUNTS}/accounts", consent)[0]
-        no_balances = next((c for c in first["consents"] if c.endswith("-no-balances")), None)
-        if no_balances:
-            yield self.call("GET", f"{ACCOUNTS}/accounts/{account}/balances", no_balances)[0]
         authorised = next(c for c in first["consents"] if c.endswith("-authorised"))
         yield self.call("GET", f"{ACCOUNTS}/accounts/unknown-account", authorised)[0]
         yield from self.lifecycle(first["cpf"])
 
-    def lifecycle(self, cpf: str) -> Iterator[Exchange]:
+    def authorised_consent(self, cpf: str) -> Iterator[tuple[Exchange, str | None]]:
+        """Creates a consent for the customer, authorises it (/mock) and reads it. Yields each
+        exchange with the consent id (None if the creation did not give one)."""
         expiration = (self.today() + timedelta(days=90)).isoformat() + "T23:59:59Z"
         body = {"data": {"loggedUser": {"document": {"identification": cpf, "rel": "CPF"}},
                          "permissions": PERMISSIONS, "expirationDateTime": expiration}}
         created, document = self.call("POST", f"{CONSENTS}/consents", CLIENT_TOKEN, body)
-        yield created
-        consent = (document or {}).get("data", {}).get("consentId") if created.status == 201 else None
+        data = (document or {}).get("data") if isinstance(document, dict) else None
+        consent = data.get("consentId") if created.status == 201 and isinstance(data, dict) else None
+        yield created, consent
+        if consent:
+            self.client.request("POST", f"/mock/consents/{consent}/authorise", headers={})
+            yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0], consent
+
+    def lifecycle(self, cpf: str) -> Iterator[Exchange]:
+        consent = None
+        for ex, consent in self.authorised_consent(cpf):
+            yield ex
         if not consent:
             return
-        self.client.request("POST", f"/mock/consents/{consent}/authorise", headers={})
-        yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]
         yield self.call("GET", f"{ACCOUNTS}/accounts", consent)[0]
         yield self.call("DELETE", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]
         yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]

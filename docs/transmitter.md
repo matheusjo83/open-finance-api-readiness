@@ -73,10 +73,12 @@ Each customer has one to three accounts (always one `CONTA_DEPOSITO_A_VISTA`). S
 | Consent | Customer | State |
 |---|---|---|
 | `urn:transmitter:seed-<n>-authorised` | each customer *n* | `AUTHORISED`, all accounts permissions, about a year left |
-| `urn:transmitter:seed-1-expired` | first | `AUTHORISED` until 35 days ago, so read as `REJECTED` (`CONSENT_MAX_DATE_REACHED`) |
-| `urn:transmitter:seed-1-revoked` | first | `REJECTED` (`CUSTOMER_MANUALLY_REVOKED`) |
-| `urn:transmitter:seed-1-no-balances` | first | `AUTHORISED` with `ACCOUNTS_READ` and `RESOURCES_READ` only |
-| `urn:transmitter:seed-1-awaiting` | first | `AWAITING_AUTHORISATION` (rejected 60 minutes after start) |
+| `urn:transmitter:seed-<n>-expired` | each customer *n* | `AUTHORISED` until 35 days ago, so read as `REJECTED` (`CONSENT_MAX_DATE_REACHED`) |
+| `urn:transmitter:seed-<n>-revoked` | each customer *n* | `REJECTED` (`CUSTOMER_MANUALLY_REVOKED`) |
+| `urn:transmitter:seed-<n>-no-balances` | each customer *n* | `AUTHORISED` with `ACCOUNTS_READ` and `RESOURCES_READ` only |
+| `urn:transmitter:seed-<n>-awaiting` | each customer *n* | `AWAITING_AUTHORISATION` (rejected 60 minutes after start) |
+
+`/mock/seed` lists each customer's consents in this order, the authorised one first.
 
 ### Invariants
 

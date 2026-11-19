@@ -10,6 +10,7 @@ import httpx2
 from .results import S3Store
 from .spec import load_specs
 from .validate import run
+from .walk import Walker
 
 
 def main() -> None:
@@ -21,7 +22,8 @@ def main() -> None:
         region=env.get("AWS_REGION", "us-east-1"),
     )
     with httpx2.Client(base_url=env.get("TARGET", "http://proxy.ofb.svc"), timeout=15.0) as client:
-        summary = run(client, specs, store, run_id=env.get("RUN_ID") or None)
+        walker = Walker(client, balance_consents=int(env.get("BALANCE_CONSENTS", "2")))
+        summary = run(client, specs, store, run_id=env.get("RUN_ID") or None, walker=walker)
         # Write the proxy's buffered labels now, so they are in the store with the results.
         try:
             client.request("POST", "/_proxy/flush", headers={})

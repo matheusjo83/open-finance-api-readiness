@@ -92,40 +92,41 @@ class ConsentStore:
 def seed_consents(dataset: Dataset, now: datetime) -> list[Consent]:
     """Deterministic consents for the seeded customers (listed by GET /mock/seed).
 
-    Every customer gets an AUTHORISED consent with all accounts permissions, valid for a
-    year. The first customer also gets one consent per non-happy path: expired, revoked,
-    without balances permission and still awaiting authorisation.
+    Every customer gets, in this order: an AUTHORISED consent with all accounts permissions,
+    valid for a year, then one consent per non-happy path: expired, revoked, without balances
+    permission and still awaiting authorisation.
     """
     out: list[Consent] = []
     for index, customer in enumerate(dataset.customers, start=1):
+        prefix, cpf = f"urn:transmitter:seed-{index}", customer.cpf
         out.append(Consent(
-            consent_id=f"urn:transmitter:seed-{index}-authorised", cpf=customer.cpf, cnpj=None,
+            consent_id=f"{prefix}-authorised", cpf=cpf, cnpj=None,
             permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=10),
             expiration=now + MAX_VALIDITY - timedelta(days=10), status="AUTHORISED",
             status_updated=now - timedelta(days=10, minutes=-5),
         ))
-    first = dataset.customers[0].cpf
-    expired = Consent(
-        consent_id="urn:transmitter:seed-1-expired", cpf=first, cnpj=None,
-        permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=400),
-        expiration=now - timedelta(days=35), status="AUTHORISED",
-        status_updated=now - timedelta(days=400, minutes=-5),
-    )
-    revoked = Consent(
-        consent_id="urn:transmitter:seed-1-revoked", cpf=first, cnpj=None,
-        permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=60),
-        expiration=now + timedelta(days=300), status="AUTHORISED",
-    )
-    revoked.reject(now - timedelta(days=20), "USER", "CUSTOMER_MANUALLY_REVOKED")
-    no_balances = Consent(
-        consent_id="urn:transmitter:seed-1-no-balances", cpf=first, cnpj=None,
-        permissions=["ACCOUNTS_READ", "RESOURCES_READ"], created=now - timedelta(days=5),
-        expiration=now + timedelta(days=180), status="AUTHORISED",
-        status_updated=now - timedelta(days=5, minutes=-5),
-    )
-    awaiting = Consent(
-        consent_id="urn:transmitter:seed-1-awaiting", cpf=first, cnpj=None,
-        permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(minutes=1),
-        expiration=now + timedelta(days=90),
-    )
-    return out + [expired, revoked, no_balances, awaiting]
+        out.append(Consent(
+            consent_id=f"{prefix}-expired", cpf=cpf, cnpj=None,
+            permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=400),
+            expiration=now - timedelta(days=35), status="AUTHORISED",
+            status_updated=now - timedelta(days=400, minutes=-5),
+        ))
+        revoked = Consent(
+            consent_id=f"{prefix}-revoked", cpf=cpf, cnpj=None,
+            permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=60),
+            expiration=now + timedelta(days=300), status="AUTHORISED",
+        )
+        revoked.reject(now - timedelta(days=20), "USER", "CUSTOMER_MANUALLY_REVOKED")
+        out.append(revoked)
+        out.append(Consent(
+            consent_id=f"{prefix}-no-balances", cpf=cpf, cnpj=None,
+            permissions=["ACCOUNTS_READ", "RESOURCES_READ"], created=now - timedelta(days=5),
+            expiration=now + timedelta(days=180), status="AUTHORISED",
+            status_updated=now - timedelta(days=5, minutes=-5),
+        ))
+        out.append(Consent(
+            consent_id=f"{prefix}-awaiting", cpf=cpf, cnpj=None,
+            permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(minutes=1),
+            expiration=now + timedelta(days=90),
+        ))
+    return out

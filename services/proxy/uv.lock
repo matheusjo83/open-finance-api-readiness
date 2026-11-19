@@ -123,7 +123,7 @@ dev = [
     { name = "openapi-core" },
     { name = "pytest" },
     { name = "pyyaml" },
-    { name = "transmitter", directory = "../transmitter" },
+    { name = "transmitter", editable = "../transmitter" },
 ]
 
 [[package]]
@@ -617,7 +617,7 @@ wheels = [
 [[package]]
 name = "transmitter"
 version = "0.1.0"
-source = { directory = "../transmitter" }
+source = { editable = "../transmitter" }
 dependencies = [
     { name = "fastapi" },
     { name = "uvicorn" },

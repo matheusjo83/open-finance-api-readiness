@@ -47,13 +47,13 @@ into `reports/`. CI uploads it as the `reports` artifact.
 
 ## Results
 
-The reference campaign of 2026-11-18 had 3 defect seeds and 50 synthetic customers, 3,798
+The reference campaign of 2026-11-19 had 3 defect seeds and 50 synthetic customers, 7,479
 exchanges in all ([docs/detection-report.md](docs/detection-report.md)):
 
 | Layer | Precision | Recall (strict) | Recall (conditional) | Defects |
 |---|---|---|---|---|
-| Contract | 100 % [99–100] | 100 % [99–100] | 100 % | 692 |
-| Business | 100 % [99–100] | 99.7 % [98–100] | 100 % | 296 (1 inconclusive) |
+| Contract | 100 % [100–100] | 100 % [100–100] | 100 % | 1,126 |
+| Business | 100 % [100–100] | 90.8 % [89–92] | 100 % | 971 (89 inconclusive) |
 
 Intervals: 95 % Wilson. Two contract defects pass plain schema validation:
 
@@ -61,8 +61,8 @@ Intervals: 95 % Wilson. Two contract defects pass plain schema validation:
 - a missing `x-fapi-interaction-id` on Consents and on Accounts errors: only the echo rule finds
   it.
 
-`consent-not-enforced` (3) and `inconsistent-balance` (10) have few positives, so their intervals
-are wide.
+Most inconclusive business checks are of `consent-not-enforced` (81 of 661): the consent's one
+read failed the contract layer, so its state is unknown.
 
 ## Specifications
 

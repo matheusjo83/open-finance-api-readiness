@@ -76,3 +76,26 @@ def test_contract_failures_are_left_out(runs):
     failed = {r["interaction_id"] for r in run.contract.where("verdict = 'fail'").collect()}
     assert failed
     assert not failed & {c["interaction_id"] for c in run.checks}
+
+
+def test_missing_next_is_inconclusive_when_the_later_pages_were_left_out(runs):
+    """A full page without a next link, whose later pages all failed the contract layer: the rule
+    has no evidence either way (found in the reference campaign of 2026-11-19)."""
+    from pyspark.sql import functions as F
+
+    from rules import build
+
+    run = runs("broken-pagination")
+    target = next(i for i, label in run.label_of.items() if label["defect_variant"] == "missing-next")
+    pages = run.tables["listing_pages"]
+    page = pages.where(F.col("interaction_id") == target).first()
+    later = [r["interaction_id"] for r in pages.where((F.col("listing") == page["listing"])
+                                                      & (F.col("page") > page["page"])).collect()]
+    assert later, "the walk probed no later page"
+    contract = run.contract.withColumn(
+        "verdict", F.when(F.col("interaction_id").isin(later), F.lit("fail")).otherwise(F.col("verdict")))
+    checks = build(run.exchanges, contract)["business_checks"]
+    outcome = checks.where((F.col("interaction_id") == target) & (F.col("rule") == "pagination.missing-next")).first()
+    assert outcome["outcome"] == "inconclusive"
+    # Unchanged, the same page is a finding.
+    assert any(c["interaction_id"] == target and c["rule"] == "pagination.missing-next" for c in findings(run))

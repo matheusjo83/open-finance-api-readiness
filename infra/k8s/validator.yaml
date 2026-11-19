@@ -10,7 +10,8 @@ metadata:
   labels: { app: contract-validator }
 spec:
   backoffLimit: 0
-  activeDeadlineSeconds: 300
+  # Generous for campaigns (make campaign, 50 customers: about 2,400 calls).
+  activeDeadlineSeconds: 900
   template:
     metadata:
       labels: { app: contract-validator }
@@ -26,6 +27,8 @@ spec:
           imagePullPolicy: Never
           env:
             - { name: TARGET, value: "http://proxy.ofb.svc" }
+            # New consents per customer that read every balance again (docs/validator.md).
+            - { name: BALANCE_CONSENTS, value: "2" }
             - { name: S3_ENDPOINT, value: "http://seaweedfs-all-in-one.storage.svc:8333" }
             - { name: RESULTS_BUCKET, value: lakehouse }
             - { name: AWS_REGION, value: us-east-1 }
