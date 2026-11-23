@@ -19,13 +19,17 @@ Released as [v1.0.0](https://github.com/matheusjo83/open-finance-api-readiness/r
 ## After the MVP
 
 - [x] **6. Volume for the rare classes**: every customer gets the non-happy consents, the walk uses them on the accounts list and every balance, and new consents re-read the balances (`BALANCE_CONSENTS`). In the reference campaign, `consent-not-enforced` goes from 3 to 661 positives and `inconsistent-balance` from 10 to 40. The campaign also caught a pagination case that said pass without evidence (decision 31). Released as [v1.1.0](https://github.com/matheusjo83/open-finance-api-readiness/releases/tag/v1.1.0).
-- [x] **7. A second source of consent state**: each consent was read once, so when that read failed the contract layer, its accounts checks were inconclusive: 81 of the 89 inconclusive business checks in v1.1.0's reference campaign. The walk now reads each consent twice before use, the second time with a renewed client-credentials token, so the second read gets a draw of its own (decision 33).
+- [x] **7. A second source of consent state**: each consent was read once, so when that read failed the contract layer, its accounts checks were inconclusive: 81 of the 89 inconclusive business checks in v1.1.0's reference campaign. The walk now reads each consent twice before use, the second time with a renewed client-credentials token, so the second read gets a draw of its own (decision 33). Released as [v1.2.0](https://github.com/matheusjo83/open-finance-api-readiness/releases/tag/v1.2.0).
 - [x] **8. Spark image step in CI**: it took 60 to 105 seconds. The jars were thought to be the cause, but measured they take about 3 seconds to download; most of the step was `kind load` of a 3.4 GB image into both nodes. The jars now get their mode from `ADD --chmod` (no second 400 MB layer, 2.6 GB image), and every image is loaded into the worker only (decision 34). A layer or jar cache was left out: it would save seconds, not tens of them.
-- [ ] **9. Focused campaign** (optional): the rare classes at boosted rates (`DEFECT_RATES`), reported apart from the reference campaign. It would estimate each rule with a narrow interval, but the mix is artificial, so it would not replace the default-rate figures.
+
+Next release (v1.3.0): items 10, 9 and 11, in that order, with a new reference campaign.
+
+- [ ] **9. Focused campaign**: the rare classes at boosted rates (`DEFECT_RATES`), reported apart from the reference campaign. It would estimate each rule with a narrow interval, but the mix is artificial, so it would not replace the default-rate figures.
+- [x] **10. Memory of the detection report**: in the reference campaign of 2026-11-23 one report executor was OOMKilled (Spark retried the task). Its pod peaked at 1051 MiB of 1433 MiB on a rerun: 1g of heap plus the default 384m overhead. The overhead is now 768m for the driver and the executor, the heap unchanged; the rerun peaked at 981 MiB of 1792 MiB, with the same report (decision 35).
+- [ ] **11. Full consent state machine**: extensions (`POST /consents/{consentId}/extends`, `GET /consents/{consentId}/extensions`), multiple approvers, permission-group rules (2a covers creation, authorisation, rejection, revocation and expiry).
 
 ## Later
 
 - FAPI-BR security: the OpenID Foundation conformance suite against a local authorization server (Keycloak); mTLS, PAR, JARM, DCR.
-- Full consent state machine: extensions (`POST /consents/{consentId}/extends`, `GET /consents/{consentId}/extensions`), multiple approvers, permission-group rules (2a covers creation, authorisation, rejection, revocation and expiry).
 - Operational layer: latency and availability per endpoint, call limits (k6), PCM-style metrics (Manual de Monitoramento v3.0, IN BCB 706).
 - Payments (Pix), several simulated institutions, orchestration (Airflow), scale benchmark.

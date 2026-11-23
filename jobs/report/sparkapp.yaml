@@ -27,9 +27,13 @@ spec:
     spark.sql.session.timeZone: UTC
   restartPolicy:
     type: Never
+  # The heap stays at 1g; the overhead (off-heap: S3A and Parquet buffers, threads, metaspace)
+  # goes from the default 384m to 768m. With 384m an executor was OOMKilled once in the reference
+  # campaign of 2026-11-23: its pod peaked at 1051 MiB of 1433 MiB on a rerun (decision 35).
   driver:
     cores: 1
     memory: 1g
+    memoryOverhead: 768m
     serviceAccount: spark
     envFrom:
       - configMapRef:
@@ -40,6 +44,7 @@ spec:
     instances: 1
     cores: 1
     memory: 1g
+    memoryOverhead: 768m
     envFrom:
       - configMapRef:
           name: lakehouse-config
