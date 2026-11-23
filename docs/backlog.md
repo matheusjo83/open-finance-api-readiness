@@ -24,7 +24,7 @@ Released as [v1.0.0](https://github.com/matheusjo83/open-finance-api-readiness/r
 
 Next release (v1.3.0): items 10, 12, 9 and 11, in that order, with a new reference campaign.
 
-- [ ] **9. Focused campaign**: the rare classes at boosted rates (`DEFECT_RATES`), reported apart from the reference campaign. It would estimate each rule with a narrow interval, but the mix is artificial, so it would not replace the default-rate figures.
+- [x] **9. Focused campaign**: the rare classes at boosted rates, the contract classes off, reported apart from the reference campaign ([focused-report.md](focused-report.md), decision 37). Each business rule now has 55 to 534 cases; conditional recall stays at 100 %. The campaign also showed the business-rules job short of memory, which got the report's overhead.
 - [x] **10. Memory of the detection report**: in the reference campaign of 2026-11-23 one report executor was OOMKilled (Spark retried the task). Its pod peaked at 1051 MiB of 1433 MiB on a rerun: 1g of heap plus the default 384m overhead. The overhead is now 768m for the driver and the executor, the heap unchanged; the rerun peaked at 981 MiB of 1792 MiB, with the same report (decision 35).
 - [ ] **11. Full consent state machine**: extensions (`POST /consents/{consentId}/extends`, `GET /consents/{consentId}/extensions`), multiple approvers, permission-group rules (2a covers creation, authorisation, rejection, revocation and expiry).
 - [x] **12. Jars of the Spark image cached in CI**: Maven Central answered every jar with one wrong body on 3 of 6 CI runs on 2026-11-23 (the checksums rejected it). The jars are now fetched by `make jars` with a mirror and retries, and CI caches them (decision 36).

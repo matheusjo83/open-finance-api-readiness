@@ -49,7 +49,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign reports \
+  validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -241,6 +241,13 @@ SEEDS ?= 3
 CUSTOMERS ?= 50
 campaign:
 	scripts/campaign.sh "$(SEEDS)" "$(CUSTOMERS)" "$(or $(REPORT_NAME),campaign-$$(date -u +%Y%m%d))"
+
+# A focused campaign: the same, with the contract classes off and the business classes boosted
+# (FOCUSED_RATES), to measure each business rule on many cases. Reported apart from the
+# reference campaign: the mix is artificial (docs/report.md, decision 37).
+FOCUSED_RATES ?= {"missing-required-field": 0, "invalid-format": 0, "missing-interaction-id": 0, "undeclared-field": 0, "inconsistent-balance": 0.4, "broken-pagination": 0.3, "consent-not-enforced": 0.2, "transaction-outside-window": 0.1}
+focused-campaign:
+	scripts/campaign.sh "$(SEEDS)" "$(CUSTOMERS)" "$(or $(REPORT_NAME),focused-$$(date -u +%Y%m%d))" '$(FOCUSED_RATES)'
 
 up: platform image transmitter-deploy proxy-deploy
 
