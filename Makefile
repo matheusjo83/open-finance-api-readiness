@@ -11,6 +11,9 @@ BIN := $(CURDIR)/.bin
 export PATH := $(BIN):$(PATH)
 
 CLUSTER := open-finance
+# Images go to the worker only: the control plane is tainted NoSchedule, so no pod of ours runs
+# there, and loading it too costs a second copy of every image (decision 34).
+KIND_LOAD := kind load docker-image --name $(CLUSTER) --nodes $(CLUSTER)-worker
 SPARK_IMAGE := ofar/spark:local
 TRANSMITTER_IMAGE := ofar/transmitter:local
 PROXY_IMAGE := ofar/defect-proxy:local
@@ -140,11 +143,11 @@ platform: cluster
 
 image: cluster
 	docker build -f images/spark/Dockerfile -t $(SPARK_IMAGE) .
-	kind load docker-image $(SPARK_IMAGE) --name $(CLUSTER)
+	$(KIND_LOAD) $(SPARK_IMAGE)
 
 transmitter-image: cluster
 	docker build -t $(TRANSMITTER_IMAGE) services/transmitter
-	kind load docker-image $(TRANSMITTER_IMAGE) --name $(CLUSTER)
+	$(KIND_LOAD) $(TRANSMITTER_IMAGE)
 
 # Applies a manifest with a hash of the image's build inputs in its ofar/image-id annotation, so
 # the pod is replaced only when they change. (Docker's image id is not used: with the containerd
@@ -164,7 +167,7 @@ transmitter-smoke:
 
 proxy-image: cluster
 	docker build -t $(PROXY_IMAGE) services/proxy
-	kind load docker-image $(PROXY_IMAGE) --name $(CLUSTER)
+	$(KIND_LOAD) $(PROXY_IMAGE)
 
 proxy-deploy: proxy-image
 	$(call apply_with_image_id,services/proxy,infra/k8s/proxy.yaml)
@@ -184,7 +187,7 @@ jobs-test: $(BIN)/uv specs
 # The pinned specs go in as a named build context (they are outside services/validator).
 validator-image: cluster specs
 	docker build --build-context specs=specs/upstream -t $(VALIDATOR_IMAGE) services/validator
-	kind load docker-image $(VALIDATOR_IMAGE) --name $(CLUSTER)
+	$(KIND_LOAD) $(VALIDATOR_IMAGE)
 
 # One validation run through the proxy, as a Job: results and exchanges in SeaweedFS.
 validate: validator-image
