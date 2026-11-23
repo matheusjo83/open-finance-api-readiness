@@ -1,6 +1,7 @@
 # Spark image (make image): only the jobs, without their test project.
 *
 !jobs/
+!.cache/jars/*.jar
 jobs/.venv
 jobs/tests
 jobs/pyproject.toml

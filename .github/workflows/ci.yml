@@ -72,6 +72,13 @@ jobs:
       - name: Platform (kind, CloudNativePG, SeaweedFS, Spark Operator)
         run: make platform
 
+      # The Spark image's jars (make jars), keyed on their pinned sums: with a hit, the image
+      # build does not reach Maven Central (decision 36).
+      - uses: actions/cache@v6
+        with:
+          path: .cache/jars
+          key: jars-${{ hashFiles('images/spark/jars.sha256') }}
+
       - name: Spark image
         run: make image
 
