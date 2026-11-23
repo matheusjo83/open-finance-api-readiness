@@ -28,7 +28,11 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
   read, use, revoke (204), read again.
 
 A consent is always read before it is used, so the business rules know its state
-([business-rules.md](business-rules.md)). When a full page comes without `links.next`, the walk
+([business-rules.md](business-rules.md)). It is read twice, the second time with a renewed
+client-credentials token. The proxy keys its draw on the bearer, so this second read gets a draw
+of its own, and the state is still known when one of the two reads fails the contract layer
+(decision 33). The read after the revocation, in the lifecycle, is made once: nothing uses the
+consent after it. When a full page comes without `links.next`, the walk
 asks for the next page number anyway, a careful client's probe. A dropped next link then
 shows up as a later page with items.
 

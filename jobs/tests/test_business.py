@@ -99,3 +99,29 @@ def test_missing_next_is_inconclusive_when_the_later_pages_were_left_out(runs):
     assert outcome["outcome"] == "inconclusive"
     # Unchanged, the same page is a finding.
     assert any(c["interaction_id"] == target and c["rule"] == "pagination.missing-next" for c in findings(run))
+
+
+def test_consent_state_survives_one_failed_read(runs):
+    """Each consent is read twice before use (decision 33): with one read failed by the contract
+    layer the rule still decides from the other; with both failed it is inconclusive."""
+    from pyspark.sql import functions as F
+
+    from rules import build
+
+    run = runs("consent-not-enforced")
+    target = next(c for c in findings(run) if c["rule"] == "consent.enforced")
+    call = run.exchanges.where(F.col("interaction_id") == target["interaction_id"]).first()
+    reads = [r["interaction_id"] for r in run.exchanges.where(
+        (F.col("walk_id") == call["walk_id"]) & (F.col("seq") < call["seq"])
+        & (F.col("path") == f"/open-banking/consents/v3/consents/{call['consent']}")).collect()]
+    assert len(reads) == 2, reads
+
+    def outcome(failed):
+        contract = run.contract.withColumn(
+            "verdict", F.when(F.col("interaction_id").isin(failed), F.lit("fail")).otherwise(F.col("verdict")))
+        checks = build(run.exchanges, contract)["business_checks"]
+        return checks.where((F.col("interaction_id") == target["interaction_id"])
+                            & (F.col("rule") == "consent.enforced")).first()["outcome"]
+
+    assert outcome(reads[:1]) == outcome(reads[1:]) == "finding"
+    assert outcome(reads) == "inconclusive"

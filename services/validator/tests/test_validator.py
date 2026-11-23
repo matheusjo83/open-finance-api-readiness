@@ -9,6 +9,7 @@ import pytest
 from contract_validator.results import MemoryStore, PartWriter
 from contract_validator.rules import Exchange, check, undeclared_fields
 from contract_validator.spec import spec_for
+from contract_validator.walk import CLIENT_TOKEN, CLIENT_TOKEN_RENEWED
 from defect_proxy.selection import parse_rates
 
 from .conftest import only, zero_rates
@@ -44,6 +45,31 @@ def test_one_result_and_one_exchange_per_label(validate):
     exchange = next(e for e in result.exchanges if e["operation"] == "accountsGetAccountsAccountIdBalances")
     assert json.loads(exchange["response_body"])["data"]["availableAmount"]
     assert exchange["consent"] and "authorization" not in exchange["request_headers"]
+
+
+def test_every_consent_is_read_twice_before_use(validate):
+    """Before its first use, each consent has been read with both client tokens (decision 33)."""
+    result = validate(zero_rates())
+    reads: dict[str, set[str]] = {}
+    used = 0
+    for e in sorted(result.exchanges, key=lambda e: e["seq"]):
+        if e["operation"] == "consentsGetConsentsConsentId":
+            reads.setdefault(e["path"].rsplit("/", 1)[1], set()).add(e["consent"])
+        elif e["operation"].startswith("accountsGet") and e["path"].rsplit("/", 1)[1] != "unknown-account":
+            assert reads.get(e["consent"]) == {CLIENT_TOKEN, CLIENT_TOKEN_RENEWED}, e["path"]
+            used += 1
+    assert used
+
+
+def test_second_consent_read_is_a_draw_of_its_own(validate):
+    """At a rate of one half, some consent gets a defect on one read and not on the other."""
+    result = validate({**zero_rates(), "missing-required-field": 0.5})
+    outcomes: dict[str, set[bool]] = {}
+    for e in result.exchanges:
+        if e["operation"] == "consentsGetConsentsConsentId":
+            label = result.label_of[e["interaction_id"]]
+            outcomes.setdefault(e["path"], set()).add(label["defect_class"] is not None)
+    assert any(o == {True, False} for o in outcomes.values())
 
 
 @pytest.mark.parametrize("defect_id", CONTRACT)

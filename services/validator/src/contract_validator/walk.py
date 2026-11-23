@@ -7,8 +7,10 @@ without balances, awaiting) is read and used on the accounts list and every bala
 `balance_consents` new consents are created, authorised and read, and each reads every balance
 again (a request of its own, so a draw of its own). For the first customer, an unknown account
 and a consent lifecycle (create, authorise, read, use, revoke, read again). A consent is always
-read before it is used, so the business rules know its state. Every Open Finance call
-carries a fresh x-fapi-interaction-id.
+read before it is used, so the business rules know its state, and read twice: the second read
+carries a renewed client-credentials token, so it is a request of its own (a draw of its own)
+and the state is still known when one of the two fails the contract layer. Every Open Finance
+call carries a fresh x-fapi-interaction-id.
 
 Pages are followed through links.next. When a full page comes without one, the next page number
 is requested anyway (a careful client's probe), and the listing goes on from there.
@@ -31,6 +33,8 @@ PERMISSIONS = ["ACCOUNTS_READ", "ACCOUNTS_BALANCES_READ", "ACCOUNTS_TRANSACTIONS
                "ACCOUNTS_OVERDRAFT_LIMITS_READ", "RESOURCES_READ"]
 # The client-credentials token of the Consents API; the transmitter accepts any bearer there.
 CLIENT_TOKEN = "validator-client-credentials"
+# The same client after renewing its token: the second read of a consent carries it.
+CLIENT_TOKEN_RENEWED = "validator-client-credentials-renewed"
 # The specs' default and largest page-size.
 DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE = 25, 1000
 
@@ -99,7 +103,7 @@ class Walker:
         current = urlencode({"fromBookingDate": (today - timedelta(days=6)).isoformat(), "toBookingDate": today.isoformat()})
         for customer in seed["customers"]:
             token = next(c for c in customer["consents"] if c.endswith("-authorised"))
-            yield self.call("GET", f"{CONSENTS}/consents/{token}", CLIENT_TOKEN)[0]
+            yield from self.read_consent(token)
             yield from self.pages(f"{ACCOUNTS}/accounts", token)
             for account in customer["accounts"]:
                 base = f"{ACCOUNTS}/accounts/{account}"
@@ -114,7 +118,7 @@ class Walker:
             # read, then used on the accounts list and every balance.
             for consent in customer["consents"]:
                 if consent != token:
-                    yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0]
+                    yield from self.read_consent(consent)
                     yield self.call("GET", f"{ACCOUNTS}/accounts", consent)[0]
                     for account in customer["accounts"]:
                         yield self.call("GET", f"{ACCOUNTS}/accounts/{account}/balances", consent)[0]
@@ -132,9 +136,15 @@ class Walker:
         yield self.call("GET", f"{ACCOUNTS}/accounts/unknown-account", authorised)[0]
         yield from self.lifecycle(first["cpf"])
 
+    def read_consent(self, consent: str) -> Iterator[Exchange]:
+        """Reads the consent twice, the second time with the renewed token: the proxy keys its
+        draw on the bearer, so a plain repeat would get the same defect (decision 33)."""
+        for client_token in (CLIENT_TOKEN, CLIENT_TOKEN_RENEWED):
+            yield self.call("GET", f"{CONSENTS}/consents/{consent}", client_token)[0]
+
     def authorised_consent(self, cpf: str) -> Iterator[tuple[Exchange, str | None]]:
-        """Creates a consent for the customer, authorises it (/mock) and reads it. Yields each
-        exchange with the consent id (None if the creation did not give one)."""
+        """Creates a consent for the customer, authorises it (/mock) and reads it (twice).
+        Yields each exchange with the consent id (None if the creation did not give one)."""
         expiration = (self.today() + timedelta(days=90)).isoformat() + "T23:59:59Z"
         body = {"data": {"loggedUser": {"document": {"identification": cpf, "rel": "CPF"}},
                          "permissions": PERMISSIONS, "expirationDateTime": expiration}}
@@ -144,7 +154,8 @@ class Walker:
         yield created, consent
         if consent:
             self.client.request("POST", f"/mock/consents/{consent}/authorise", headers={})
-            yield self.call("GET", f"{CONSENTS}/consents/{consent}", CLIENT_TOKEN)[0], consent
+            for ex in self.read_consent(consent):
+                yield ex, consent
 
     def lifecycle(self, cpf: str) -> Iterator[Exchange]:
         consent = None
