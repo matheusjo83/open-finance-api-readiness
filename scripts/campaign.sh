@@ -2,13 +2,15 @@
 # A detection campaign (make campaign): for each defect seed 1..SEEDS, the proxy gets that seed
 # and a run id <name>-seed<k>, the transmitter CUSTOMERS customers; the validator walks it and
 # the business-rules job checks it. Then one report over all the runs, named <name>. The default
-# settings (seed 42, 5 customers, generated run id) are restored at the end, even on failure.
-# Usage: campaign.sh <seeds> <customers> <name>
+# settings (seed 42, 5 customers, generated run id, default rates) are restored at the end, even
+# on failure. The optional rates (JSON, the proxy's DEFECT_RATES) apply to every run of the
+# campaign: make focused-campaign passes them.
+# Usage: campaign.sh <seeds> <customers> <name> [rates]
 set -euo pipefail
 
-seeds=$1 customers=$2 name=$3
+seeds=$1 customers=$2 name=$3 rates=${4:-}
 restore() {
-  kubectl -n ofb set env deploy/proxy DEFECT_SEED=42 RUN_ID- >/dev/null
+  kubectl -n ofb set env deploy/proxy DEFECT_SEED=42 RUN_ID- DEFECT_RATES= >/dev/null
   kubectl -n ofb set env deploy/transmitter TRANSMITTER_CUSTOMERS=5 >/dev/null
   kubectl -n ofb rollout status deploy/transmitter --timeout=3m >/dev/null
   kubectl -n ofb rollout status deploy/proxy --timeout=3m >/dev/null
@@ -22,7 +24,7 @@ runs=()
 for seed in $(seq 1 "$seeds"); do
   run_id="$name-seed$seed"
   echo "=== $run_id"
-  kubectl -n ofb set env deploy/proxy DEFECT_SEED="$seed" RUN_ID="$run_id" >/dev/null
+  kubectl -n ofb set env deploy/proxy DEFECT_SEED="$seed" RUN_ID="$run_id" DEFECT_RATES="$rates" >/dev/null
   kubectl -n ofb rollout status deploy/proxy --timeout=3m
   make --no-print-directory validate
   make --no-print-directory business-rules RUN_ID="$run_id"

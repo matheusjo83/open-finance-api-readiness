@@ -65,6 +65,11 @@ The inconclusive business checks are of `inconsistent-balance` (8 of 43: no usab
 the account) and `consent-not-enforced` (10 of 661: both reads of the consent failed the contract
 layer, so its state is unknown).
 
+A focused campaign the same day, with the contract defects off and the business defects
+boosted, measures each business rule on 55 to 534 cases: precision and conditional recall stay
+at 100 % ([docs/focused-report.md](docs/focused-report.md)). Its mix is artificial, so it
+complements the reference figures above and does not replace them.
+
 ## Specifications
 
 | API | Version | Source |
@@ -157,6 +162,7 @@ results go to Iceberg tables (`lake.ofb.detection_*`) and to a Markdown report i
 make report                                       # the proxy's current run
 make report-smoke                                 # the same, failing if an invariant breaks
 make campaign SEEDS=3 CUSTOMERS=50 REPORT_NAME=x  # one run per defect seed, reported together
+make focused-campaign REPORT_NAME=x  # the same, with the business defects boosted
 ```
 
 See [docs/report.md](docs/report.md) for the metrics and

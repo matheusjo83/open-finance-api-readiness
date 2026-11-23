@@ -8,7 +8,8 @@
    the exchanges without seeing the labels;
 3. the report joins everything by `interaction_id`.
 
-The latest reference campaign is in [detection-report.md](detection-report.md).
+The latest reference campaign is in [detection-report.md](detection-report.md), and the latest
+focused campaign in [focused-report.md](focused-report.md).
 
 ## What is measured
 
@@ -66,6 +67,7 @@ excluded, which varies with the seed and the day.
 make report                                   # the proxy's current run
 make report RUNS=a,b REPORT_NAME=x            # several runs as one report
 make campaign SEEDS=3 CUSTOMERS=50 REPORT_NAME=reference-YYYYMMDD
+make focused-campaign SEEDS=3 CUSTOMERS=50 REPORT_NAME=focused-YYYYMMDD
 ```
 
 For each defect seed 1..SEEDS, `make campaign` (`scripts/campaign.sh`):
@@ -75,8 +77,16 @@ For each defect seed 1..SEEDS, `make campaign` (`scripts/campaign.sh`):
 2. runs the validator and the business-rules job;
 3. ends with one report over all the runs.
 
-At the end it restores the defaults (seed 42, 5 customers). With 50 customers, a run has about
-1,270 exchanges.
+At the end it restores the defaults (seed 42, 5 customers, default rates). With 50 customers, a
+run has about 2,850 exchanges.
+
+`make focused-campaign` runs the same steps with other rates for every run (`FOCUSED_RATES`,
+the proxy's `DEFECT_RATES`): the contract classes off, and the business classes boosted
+(`inconsistent-balance` 0.4, `broken-pagination` 0.3, `consent-not-enforced` 0.2,
+`transaction-outside-window` 0.1, where each applies). Nothing is left out by the contract
+layer, so it measures each business rule on many cases, apart from the gating. The mix is
+artificial, so it does not replace the reference campaign's figures; the two are reported apart
+(decision 37). The gate is the same.
 
 The numbers are reproducible for a given seed and day, not across days. The transmitter's
 dataset is relative to the day it starts. The walk's booking window ends today, and that window
