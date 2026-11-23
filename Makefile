@@ -47,7 +47,7 @@ SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IM
 
 HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
-.PHONY: tools specs lint-specs transmitter-test proxy-test validator-test cluster platform image \
+.PHONY: tools specs jars lint-specs transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
   validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign reports \
   up smoke diagnose down
@@ -141,7 +141,11 @@ platform: cluster
 	  --version $(SPARK_OPERATOR_CHART_VERSION) -n spark-operator --create-namespace -f infra/helm/spark-operator.yaml
 	kubectl -n storage wait cluster.postgresql.cnpg.io/iceberg-catalog --for=condition=Ready --timeout=5m
 
-image: cluster
+# The Spark image's jars, checked against images/spark/jars.sha256 (kept when already right).
+jars:
+	scripts/fetch-jars.sh images/spark/jars.sha256 .cache/jars
+
+image: cluster jars
 	docker build -f images/spark/Dockerfile -t $(SPARK_IMAGE) .
 	$(KIND_LOAD) $(SPARK_IMAGE)
 

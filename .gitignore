@@ -1,5 +1,6 @@
-# Pinned tools downloaded by the Makefile
+# Pinned tools downloaded by the Makefile, and the Spark image's jars (make jars)
 .bin/
+.cache/
 
 # Python
 .venv/
