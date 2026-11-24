@@ -9,9 +9,12 @@ EXPECTED_RULE = {
     "broken-pagination": "pagination.",
     "consent-not-enforced": "consent.enforced",
     "transaction-outside-window": "transactions.within-window",
+    "broken-extension-history": "extensions.history-consistent",
+    "extension-not-reflected": "consent.extension-reflected",
 }
 RULES = {"balance.matches-transactions", "pagination.duplicate-item", "pagination.missing-next",
-         "pagination.total-records", "consent.enforced", "transactions.within-window"}
+         "pagination.total-records", "consent.enforced", "transactions.within-window",
+         "extensions.history-consistent", "consent.extension-reflected"}
 
 
 def findings(run):
@@ -125,3 +128,26 @@ def test_consent_state_survives_one_failed_read(runs):
 
     assert outcome(reads[:1]) == outcome(reads[1:]) == "finding"
     assert outcome(reads) == "inconclusive"
+
+
+def test_renewal_left_out_makes_the_extension_rules_inconclusive(runs):
+    """When the last renewal's 201 failed the contract layer, the rules cannot know which
+    expiration to expect: the read is inconclusive (the chain of the history is still judged)."""
+    from pyspark.sql import functions as F
+
+    from rules import RENEWAL, build
+
+    run = runs("extension-not-reflected")
+    target = next(c for c in findings(run) if c["rule"] == "consent.extension-reflected")
+    read = run.exchanges.where(F.col("interaction_id") == target["interaction_id"]).first()
+    consent = read["path"].rsplit("/", 1)[1]
+    renewal = (run.exchanges.where((F.col("operation") == RENEWAL) & (F.col("status") == 201)
+                                   & (F.col("walk_id") == read["walk_id"]) & (F.col("seq") < read["seq"])
+                                   & F.col("path").contains(consent))
+               .orderBy(F.col("seq").desc()).first())
+    contract = run.contract.withColumn(
+        "verdict", F.when(F.col("interaction_id") == renewal["interaction_id"], F.lit("fail")).otherwise(F.col("verdict")))
+    checks = build(run.exchanges, contract)["business_checks"]
+    outcome = checks.where((F.col("interaction_id") == target["interaction_id"])
+                           & (F.col("rule") == "consent.extension-reflected")).first()["outcome"]
+    assert outcome == "inconclusive"

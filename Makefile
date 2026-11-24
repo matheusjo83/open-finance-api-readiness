@@ -9,6 +9,9 @@ comma := ,
 
 BIN := $(CURDIR)/.bin
 export PATH := $(BIN):$(PATH)
+# Every download retries transient failures (a 503 from raw.githubusercontent.com failed a CI
+# run on 2026-11-24); the checksums still decide what is kept (decision 36).
+CURL := curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20
 
 CLUSTER := open-finance
 # Images go to the worker only: the control plane is tainted NoSchedule, so no pod of ours runs
@@ -56,13 +59,13 @@ tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
 
 $(BIN)/kind:
 	mkdir -p $(BIN)
-	curl -fsSLo $@.tmp https://github.com/kubernetes-sigs/kind/releases/download/$(KIND_VERSION)/kind-linux-amd64
+	$(CURL) -o $@.tmp https://github.com/kubernetes-sigs/kind/releases/download/$(KIND_VERSION)/kind-linux-amd64
 	echo "$(KIND_SHA256)  $@.tmp" | sha256sum -c --quiet
 	chmod +x $@.tmp && mv $@.tmp $@
 
 $(BIN)/helm:
 	mkdir -p $(BIN)
-	curl -fsSLo $(BIN)/helm.tgz https://get.helm.sh/helm-$(HELM_VERSION)-linux-amd64.tar.gz
+	$(CURL) -o $(BIN)/helm.tgz https://get.helm.sh/helm-$(HELM_VERSION)-linux-amd64.tar.gz
 	echo "$(HELM_SHA256)  $(BIN)/helm.tgz" | sha256sum -c --quiet
 	tar -xzf $(BIN)/helm.tgz -C $(BIN) --strip-components=1 linux-amd64/helm
 	rm $(BIN)/helm.tgz
@@ -70,21 +73,21 @@ $(BIN)/helm:
 # uv runs the Python services' tests (it also fetches the pinned Python 3.13).
 $(BIN)/uv:
 	mkdir -p $(BIN)
-	curl -fsSLo $(BIN)/uv.tgz https://github.com/astral-sh/uv/releases/download/$(UV_VERSION)/uv-x86_64-unknown-linux-gnu.tar.gz
+	$(CURL) -o $(BIN)/uv.tgz https://github.com/astral-sh/uv/releases/download/$(UV_VERSION)/uv-x86_64-unknown-linux-gnu.tar.gz
 	echo "$(UV_SHA256)  $(BIN)/uv.tgz" | sha256sum -c --quiet
 	tar -xzf $(BIN)/uv.tgz -C $(BIN) --strip-components=1 uv-x86_64-unknown-linux-gnu/uv
 	rm $(BIN)/uv.tgz
 
 $(BIN)/kubectl:
 	mkdir -p $(BIN)
-	curl -fsSLo $@.tmp https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/linux/amd64/kubectl
+	$(CURL) -o $@.tmp https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/linux/amd64/kubectl
 	echo "$(KUBECTL_SHA256)  $@.tmp" | sha256sum -c --quiet
 	chmod +x $@.tmp && mv $@.tmp $@
 
 # Re-downloaded when the Makefile changes, so a new commit or checksum is always applied.
 define fetch_spec
 mkdir -p $(@D)
-curl -fsSLo $@.tmp $(SPECS_URL)/$(1)
+$(CURL) -o $@.tmp $(SPECS_URL)/$(1)
 echo "$(2)  $@.tmp" | sha256sum -c --quiet
 mv $@.tmp $@
 endef
@@ -245,7 +248,7 @@ campaign:
 # A focused campaign: the same, with the contract classes off and the business classes boosted
 # (FOCUSED_RATES), to measure each business rule on many cases. Reported apart from the
 # reference campaign: the mix is artificial (docs/report.md, decision 37).
-FOCUSED_RATES ?= {"missing-required-field": 0, "invalid-format": 0, "missing-interaction-id": 0, "undeclared-field": 0, "inconsistent-balance": 0.4, "broken-pagination": 0.3, "consent-not-enforced": 0.2, "transaction-outside-window": 0.1}
+FOCUSED_RATES ?= {"missing-required-field": 0, "invalid-format": 0, "missing-interaction-id": 0, "undeclared-field": 0, "inconsistent-balance": 0.3, "broken-pagination": 0.25, "consent-not-enforced": 0.1, "transaction-outside-window": 0.05, "broken-extension-history": 0.15, "extension-not-reflected": 0.15}
 focused-campaign:
 	scripts/campaign.sh "$(SEEDS)" "$(CUSTOMERS)" "$(or $(REPORT_NAME),focused-$$(date -u +%Y%m%d))" '$(FOCUSED_RATES)'
 

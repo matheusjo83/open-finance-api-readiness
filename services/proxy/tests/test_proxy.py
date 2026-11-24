@@ -2,6 +2,7 @@
 (contract defects break the specification, business defects keep it and break a domain rule),
 decisions are deterministic and the labels cover every exchange."""
 
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -130,6 +131,61 @@ def test_transaction_outside_window(make_proxy, seed, specs):
     assert any(not "2025-11-17" <= d <= "2026-11-16" for d in dates)
 
 
+def renewed_consents(direct, seed) -> list[str]:
+    """One consent per customer, created, authorised and renewed twice at the transmitter."""
+    out = []
+    for customer in seed["customers"]:
+        user = {"document": {"identification": customer["cpf"], "rel": "CPF"}}
+        created = direct.client.post(f"{CONSENTS}/consents", headers={"x-fapi-interaction-id": str(uuid.uuid4()),
+                                                                     "authorization": "Bearer client"},
+                                     json={"data": {"loggedUser": user, "permissions": ["ACCOUNTS_READ", "RESOURCES_READ"],
+                                                    "expirationDateTime": "2027-02-14T12:00:00Z"}})
+        consent = created.json()["data"]["consentId"]
+        direct.client.post(f"/mock/consents/{consent}/authorise")
+        for expiration in ("2027-05-15T12:00:00Z", "2027-09-12T12:00:00Z"):
+            renewed = direct.client.post(
+                f"{CONSENTS}/consents/{consent}/extends", json={"data": {"loggedUser": user, "expirationDateTime": expiration}},
+                headers={"x-fapi-interaction-id": str(uuid.uuid4()), "authorization": f"Bearer {consent}",
+                         "x-fapi-customer-ip-address": "203.0.113.7", "x-customer-user-agent": "test"})
+            assert renewed.status_code == 201
+        out.append(consent)
+    return out
+
+
+def test_broken_extension_history(make_proxy, direct, seed, specs):
+    """Both variants keep the response valid and break the chain newest -> previous."""
+    proxy = make_proxy(only("broken-extension-history"))
+    client, _ = proxy
+    variants = set()
+    for consent in renewed_consents(direct, seed):
+        url = f"{CONSENTS}/consents/{consent}/extensions"
+        response = client.get(url, "client")
+        record = labels(proxy)[-1]
+        assert record["defect_class"] == "broken-extension-history"
+        validate(specs, "GET", url, client.last_headers, response)
+        data = response.json()["data"]
+        assert data[0]["previousExpirationDateTime"] != data[1]["expirationDateTime"] or \
+            data[0]["expirationDateTime"] != "2027-09-12T12:00:00Z"
+        variants.add(record["defect_variant"])
+    assert variants == {"out-of-order", "wrong-previous"}
+
+
+def test_extension_not_reflected(make_proxy, direct, seed, specs):
+    """A renewed consent reads with the expiration it had before its last renewal; a consent
+    never renewed is left clean."""
+    proxy = make_proxy(only("extension-not-reflected"))
+    client, _ = proxy
+    consent = renewed_consents(direct, seed)[0]
+    url = f"{CONSENTS}/consents/{consent}"
+    response = client.get(url, "client")
+    validate(specs, "GET", url, client.last_headers, response)
+    assert response.json()["data"]["expirationDateTime"] == "2027-05-15T12:00:00Z"
+    assert labels(proxy)[-1]["defect_class"] == "extension-not-reflected"
+    plain = seed["customers"][0]["consents"][0]
+    assert client.get(f"{CONSENTS}/consents/{plain}", "client").status_code == 200
+    assert labels(proxy)[-1]["defect_class"] is None
+
+
 def test_decisions_are_deterministic(make_proxy, seed):
     def run(defect_seed: int) -> list:
         proxy = make_proxy(parse_rates(None), seed=defect_seed)
@@ -161,11 +217,11 @@ def test_rates_are_respected():
 
 def test_parse_rates():
     assert parse_rates(None) == {d.id: d.default_rate for d in CATALOGUE}
-    assert parse_rates('{"invalid-format": 0.2}')["invalid-format"] == 0.2
+    assert parse_rates('{"invalid-format": 0.08}')["invalid-format"] == 0.08
     for bad in ['{"nope": 0.1}', '{"invalid-format": 1.5}', '{"invalid-format": 0.9}']:
         with pytest.raises(ValueError):
             parse_rates(bad)
-    assert set(BY_ID) == {d.id for d in CATALOGUE} and len(CATALOGUE) == 8
+    assert set(BY_ID) == {d.id for d in CATALOGUE} and len(CATALOGUE) == 10
 
 
 def test_sink_keeps_records_when_a_write_fails():

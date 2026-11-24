@@ -1,8 +1,9 @@
 """HTTP layer: Consents 3.3.1 and Accounts 2.4.2 over the seeded dataset.
 
 Mock-only stand-ins, outside the specifications (docs/transmitter.md):
-- the accounts endpoints take `Authorization: Bearer <consentId>` instead of a FAPI access
-  token bound to the consent; the consents endpoints accept any bearer token;
+- the accounts endpoints and the consent renewal (POST /consents/{consentId}/extends) take
+  `Authorization: Bearer <consentId>` instead of a FAPI access or authorization_code token bound
+  to the consent; the other consents endpoints accept any bearer token;
 - POST /mock/consents/{consentId}/authorise stands for the customer's approval at the
   transmitter; GET /mock/seed lists the seeded customers, consents and accounts.
 """
@@ -21,7 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import dataset as ds
-from .consents import MAX_VALIDITY, Consent, ConsentStore, seed_consents
+from .consents import MAX_VALIDITY, Consent, ConsentStore, Extension, seed_consents
 
 CONSENTS = "/open-banking/consents/v3"
 ACCOUNTS = "/open-banking/accounts/v2"
@@ -287,6 +288,75 @@ def create_app(seed: int = 42, customers: int = 5,
     def single(request: Request, body: dict) -> JSONResponse:
         meta = {"totalRecords": 1, "totalPages": 1, "requestDateTime": fmt(clock())}
         return ok(request, {"data": body, "links": {"self": self_link(request)}, "meta": meta})
+
+    # --- consent extensions ----------------------------------------------------------------
+
+    def required_header(request: Request, name: str, limit: int) -> str:
+        value = request.headers.get(name, "")
+        if not value or value != value.strip() or len(value) > limit:
+            raise bad_request(f"O cabeçalho {name} é obrigatório.")
+        return value
+
+    @app.post(CONSENTS + "/consents/{consent_id}/extends")
+    async def extend_consent(consent_id: str, request: Request):
+        """Renewal by the logged user (authorization_code token: here the consent id, as on the
+        accounts endpoints). Only an AUTHORISED consent, only to a later date within 12 months,
+        or to no date (indeterminate)."""
+        interaction_id(request)
+        if require_bearer(request) != consent_id:
+            raise ApiError(401, "NAO_AUTORIZADO", "Não autorizado", "O token não corresponde ao consentimento.")
+        ip_address = required_header(request, "x-fapi-customer-ip-address", 100)
+        user_agent = required_header(request, "x-customer-user-agent", 255)
+        try:
+            body = (await request.json())["data"]
+            user = body["loggedUser"]["document"]
+            cpf, rel = user["identification"], user["rel"]
+        except (ValueError, KeyError, TypeError):
+            raise bad_request("data.loggedUser.document.identification e rel são obrigatórios.") from None
+        if not (isinstance(cpf, str) and re.fullmatch(r"\d{11}", cpf)) or not (isinstance(rel, str) and re.fullmatch(r"[A-Z]{3}", rel)):
+            raise bad_request("loggedUser.document fora do formato.")
+        expiration = None
+        if "expirationDateTime" in body:
+            value = body["expirationDateTime"]
+            if not isinstance(value, str) or not DATETIME_RE.match(value):
+                raise bad_request("expirationDateTime fora do formato.")
+            expiration = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        consent = find_consent(consent_id)
+        now = clock()
+        with store.lock:
+            if cpf != consent.cpf:
+                raise ApiError(403, "NAO_AUTORIZADO", "Usuário não autorizado",
+                               "Apenas o usuário que criou o consentimento pode renová-lo.")
+            if consent.status != "AUTHORISED":
+                raise ApiError(422, "ESTADO_CONSENTIMENTO_INVALIDO", "Estado inválido do consentimento",
+                               f"O consentimento está em status {consent.status}.")
+            current = consent.expiration
+            if expiration is not None and not (now < expiration <= now + MAX_VALIDITY
+                                               and (current is None or expiration > current)):
+                raise ApiError(422, "DATA_EXPIRACAO_INVALIDA", "Data de expiração inválida",
+                               "A nova data deve ser posterior à vigente e estar em até 12 meses.")
+            consent.extensions.append(Extension(now, expiration, current, cpf, ip_address, user_agent))
+            consent.expiration = expiration
+        return ok(request, consent_body(request, consent, read=False), status=201)
+
+    @app.get(CONSENTS + "/consents/{consent_id}/extensions")
+    def list_extensions(consent_id: str, request: Request):
+        interaction_id(request)
+        require_bearer(request)
+        consent = find_consent(consent_id)
+        rows = []
+        for ext in reversed(consent.extensions):
+            row = {"loggedUser": {"document": {"identification": ext.cpf, "rel": "CPF"}},
+                   "requestDateTime": fmt(ext.requested),
+                   "xFapiCustomerIpAddress": ext.ip_address, "xCustomerUserAgent": ext.user_agent}
+            if ext.expiration is not None:
+                row["expirationDateTime"] = fmt(ext.expiration)
+            if ext.previous is not None:
+                row["previousExpirationDateTime"] = fmt(ext.previous)
+            rows.append(row)
+        page, links, total, pages = paginate(request, rows)
+        meta = {"totalRecords": total, "totalPages": pages, "requestDateTime": fmt(clock())}
+        return ok(request, {"data": page, "links": links, "meta": meta})
 
     @app.get(ACCOUNTS + "/accounts")
     def list_accounts(request: Request):

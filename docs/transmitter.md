@@ -13,7 +13,8 @@ replaces openapi-mock.
 | Consents 3.3.1 | `POST /open-banking/consents/v3/consents` | implemented |
 | | `GET /open-banking/consents/v3/consents/{consentId}` | implemented |
 | | `DELETE /open-banking/consents/v3/consents/{consentId}` | implemented |
-| | `POST .../consents/{consentId}/extends`, `GET .../consents/{consentId}/extensions` | not yet (404); see the backlog |
+| | `POST .../consents/{consentId}/extends` | implemented (renewal) |
+| | `GET .../consents/{consentId}/extensions` | implemented (renewal history) |
 | Accounts 2.4.2 | `GET /open-banking/accounts/v2/accounts` | implemented (`accountType`, pagination) |
 | | `GET .../accounts/{accountId}` | implemented |
 | | `GET .../accounts/{accountId}/balances` | implemented |
@@ -31,7 +32,7 @@ These are outside the specifications and replace parts that belong to later laye
 
 | Stand-in | Real Open Finance | Why |
 |---|---|---|
-| Accounts endpoints take `Authorization: Bearer <consentId>` | A FAPI-BR access token (`authorization_code`) bound to the consent | Security (FAPI-BR, mTLS, PAR) is a later layer. |
+| Accounts endpoints and the renewal (`POST .../extends`) take `Authorization: Bearer <consentId>` | A FAPI-BR access token (`authorization_code`) bound to the consent | Security (FAPI-BR, mTLS, PAR) is a later layer. |
 | Consents endpoints accept any bearer token | A `client_credentials` token from DCR | Same. |
 | `POST /mock/consents/{consentId}/authorise` | The customer authenticates and approves at the transmitter | No authorisation server yet. |
 | `GET /mock/seed` | — | Lists the seeded customers, consents and accounts so validators know what to call. |
@@ -50,11 +51,23 @@ A consent covers every account of its customer (no account selection at authoris
 | `AUTHORISED` | `DELETE` | `REJECTED` | `USER`, `CUSTOMER_MANUALLY_REVOKED` |
 | `AUTHORISED` | `expirationDateTime` passes | `REJECTED` | `ASPSP`, `CONSENT_MAX_DATE_REACHED` |
 | `REJECTED` | `DELETE` | 422 `CONSENTIMENTO_EM_STATUS_REJEITADO` | |
+| `AUTHORISED` | `POST .../extends` | `AUTHORISED`, with the new `expirationDateTime` (or none: indeterminate) | |
+| `AWAITING_AUTHORISATION`, `REJECTED` | `POST .../extends` | 422 `ESTADO_CONSENTIMENTO_INVALIDO` | |
 
 The time-based transitions are applied when the consent is read. `expirationDateTime` must be
 in the future and at most 12 months ahead (422 `DATA_EXPIRACAO_INVALIDA`); it may be omitted.
 Permissions must be known and not repeated; the permission-group rules (for example
 `COMBINACAO_PERMISSOES_INCORRETA`) are not checked yet.
+
+A renewal (`POST .../extends`) needs the consent itself as the bearer (the stand-in for the
+customer's `authorization_code` token; otherwise 401), the `x-fapi-customer-ip-address` and
+`x-customer-user-agent` headers (otherwise 400), and the customer who created the consent as
+`loggedUser` (otherwise 403). The new `expirationDateTime` must be later than the current one
+and at most 12 months ahead (422 `DATA_EXPIRACAO_INVALIDA`); without it, the consent becomes
+indeterminate. Each renewal is recorded: `GET .../extensions` lists them newest first, each
+with its `expirationDateTime`, the `previousExpirationDateTime` it replaced, `requestDateTime`,
+the logged user and the two headers. Multiple approvers (`DEPENDE_MULTIPLA_ALCADA`) do not
+apply: there are no business customers yet.
 
 The accounts endpoints answer only for an `AUTHORISED` consent (otherwise 401), with the
 permission the endpoint needs (otherwise 403) and for accounts of the consent's customer
@@ -95,6 +108,9 @@ The business-rule layer (item 4) can rely on these, and the defect proxy breaks 
 - `blockedAmount` and `automaticallyInvestedAmount` are zero; overdraft limits exist only for
   `CONTA_DEPOSITO_A_VISTA` and are unused.
 - CPFs and CNPJs carry valid check digits; amounts are in `BRL` with two decimals.
+- A renewed consent reads with the expiration its last renewal set. Its renewal history is newest
+  first, each renewal's `previousExpirationDateTime` is the `expirationDateTime` of the one
+  before it, and the newest one's `expirationDateTime` is the consent's.
 
 ## Tests
 

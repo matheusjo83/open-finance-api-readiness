@@ -28,6 +28,8 @@ ROUTES = [
     ("GET", re.compile(rf"^{ACCOUNTS}/accounts/[^/]+/transactions-current$"), "accounts.transactions-current"),
     ("GET", re.compile(rf"^{ACCOUNTS}/accounts/[^/]+/overdraft-limits$"), "accounts.overdraft-limits"),
     ("POST", re.compile(rf"^{CONSENTS}/consents$"), "consents.create"),
+    ("POST", re.compile(rf"^{CONSENTS}/consents/[^/]+/extends$"), "consents.extend"),
+    ("GET", re.compile(rf"^{CONSENTS}/consents/[^/]+/extensions$"), "consents.extensions"),
     ("GET", re.compile(rf"^{CONSENTS}/consents/[^/]+$"), "consents.read"),
     ("DELETE", re.compile(rf"^{CONSENTS}/consents/[^/]+$"), "consents.delete"),
 ]
@@ -43,6 +45,8 @@ REQUIRED_FIELDS = {
     "accounts.transactions-current": ["transactionId", "creditDebitType", "transactionAmount", "transactionDateTime"],
     "consents.create": ["consentId", "status", "creationDateTime", "permissions"],
     "consents.read": ["consentId", "status", "creationDateTime", "permissions"],
+    "consents.extend": ["consentId", "status", "creationDateTime", "permissions"],
+    "consents.extensions": ["loggedUser", "requestDateTime"],
 }
 
 
@@ -87,9 +91,11 @@ class Injection:
 
 @dataclass
 class Context:
-    """What some defects need besides the exchange: the seeded consents, by customer."""
+    """What some defects need besides the exchange: the seeded consents, by customer, and a
+    consent's renewal history at the transmitter."""
 
     substitute_consent: Callable[[str], Awaitable[str | None]]
+    extensions: Callable[[str], Awaitable[list[dict]]]
 
 
 @dataclass
@@ -263,6 +269,58 @@ async def _outside_window(ex: Exchange, rng: random.Random, ctx: Context) -> Inj
                      f"{before} -> {item['transactionDateTime']} (window {start}..{end})")
 
 
+def _shift(value: str, rng: random.Random) -> str:
+    """The same RFC 3339 date-time, 1 to 30 days earlier or later."""
+    moment = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    days = rng.randrange(1, 31) * rng.choice([1, -1])
+    return (moment + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _history_variants(ex: Exchange) -> list[str]:
+    if not (ex.ok_json and ex.route == "consents.extensions" and isinstance(ex.body["data"], list)):
+        return []
+    data = [item for item in ex.body["data"] if isinstance(item, dict)]
+    if len(data) < 2 or len(data) != len(ex.body["data"]):
+        return []
+    variants = ["out-of-order"]
+    if any("previousExpirationDateTime" in item for item in data[:-1]):
+        variants.append("wrong-previous")
+    return variants
+
+
+async def _broken_history(ex: Exchange, rng: random.Random, ctx: Context) -> Injection:
+    """Newest first, each renewal replacing the expiration of the next one: the list is reversed,
+    or a previousExpirationDateTime (not the oldest one's) stops matching."""
+    variant = rng.choice(_history_variants(ex))
+    data = ex.body["data"]
+    if variant == "out-of-order":
+        data.reverse()
+        return Injection(variant, "/data", "renewals listed oldest first")
+    index = rng.choice([i for i, item in enumerate(data[:-1]) if "previousExpirationDateTime" in item])
+    before = data[index]["previousExpirationDateTime"]
+    data[index]["previousExpirationDateTime"] = _shift(before, rng)
+    return Injection(variant, f"/data/{index}/previousExpirationDateTime",
+                     f"{before} -> {data[index]['previousExpirationDateTime']}")
+
+
+def _not_reflected_applies(ex: Exchange) -> bool:
+    return ex.ok_json and ex.route == "consents.read" and isinstance(ex.body["data"], dict) \
+        and isinstance(ex.body["data"].get("consentId"), str)
+
+
+async def _not_reflected(ex: Exchange, rng: random.Random, ctx: Context) -> Injection | None:
+    """A renewed consent read with the expiration its last renewal replaced. Consents never
+    renewed, or last renewed from an indeterminate term, are left alone."""
+    data = ex.body["data"]
+    history = await ctx.extensions(data["consentId"])
+    previous = history[0].get("previousExpirationDateTime") if history else None
+    if previous is None or data.get("expirationDateTime") == previous:
+        return None
+    before = data.get("expirationDateTime")
+    data["expirationDateTime"] = previous
+    return Injection("previous", "/data/expirationDateTime", f"{before} -> {previous} (before the last renewal)")
+
+
 CATALOGUE: list[Defect] = [
     Defect("missing-required-field", "contract", "A required field is removed from the body.",
            _missing_required_applies, _missing_required),
@@ -281,5 +339,12 @@ CATALOGUE: list[Defect] = [
            _consent_not_enforced_applies, _consent_not_enforced, default_rate=0.5),
     Defect("transaction-outside-window", "business", "A transaction is dated outside the requested booking window.",
            _outside_window_applies, _outside_window),
+    # Appended, so the classes above keep their bands of the draw (selection.py).
+    Defect("broken-extension-history", "business",
+           "The renewal history is out of order or a previousExpirationDateTime does not chain.",
+           lambda ex: bool(_history_variants(ex)), _broken_history),
+    Defect("extension-not-reflected", "business",
+           "A renewed consent is read with the expiration from before its last renewal.",
+           _not_reflected_applies, _not_reflected),
 ]
 BY_ID = {d.id: d for d in CATALOGUE}

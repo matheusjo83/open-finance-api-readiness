@@ -47,13 +47,13 @@ into `reports/`. CI uploads it as the `reports` artifact.
 
 ## Results
 
-The reference campaign of 2026-11-23 had 3 defect seeds and 50 synthetic customers, 8,532
+The reference campaign of 2026-11-24 had 3 defect seeds and 50 synthetic customers, 10,182
 exchanges in all ([docs/detection-report.md](docs/detection-report.md)):
 
 | Layer | Precision | Recall (strict) | Recall (conditional) | Defects |
 |---|---|---|---|---|
-| Contract | 100 % [100–100] | 100 % [100–100] | 100 % | 1,315 |
-| Business | 100 % [100–100] | 98.2 % [97–99] | 100 % | 981 (18 inconclusive) |
+| Contract | 100 % [100–100] | 100 % [100–100] | 100 % | 1,592 |
+| Business | 100 % [100–100] | 98.0 % [97–99] | 100 % | 1,018 (20 inconclusive) |
 
 Intervals: 95 % Wilson. Two contract defects pass plain schema validation:
 
@@ -61,12 +61,13 @@ Intervals: 95 % Wilson. Two contract defects pass plain schema validation:
 - a missing `x-fapi-interaction-id` on Consents and on Accounts errors: only the echo rule finds
   it.
 
-The inconclusive business checks are of `inconsistent-balance` (8 of 43: no usable history for
-the account) and `consent-not-enforced` (10 of 661: both reads of the consent failed the contract
-layer, so its state is unknown).
+An inconclusive business check is one whose input the contract layer left out: both reads of a
+consent (10 of 661 `consent-not-enforced`), part of an account's history (3 of 44
+`inconsistent-balance`), or the response to the last renewal (5 of 38 for the two renewal
+classes).
 
 A focused campaign the same day, with the contract defects off and the business defects
-boosted, measures each business rule on 55 to 534 cases: precision and conditional recall stay
+boosted, measures each business rule on 38 to 464 cases: precision and conditional recall stay
 at 100 % ([docs/focused-report.md](docs/focused-report.md)). Its mix is artificial, so it
 complements the reference figures above and does not replace them.
 
@@ -107,8 +108,8 @@ mock-only stand-ins (token, authorisation).
 
 ## Defect proxy
 
-`services/proxy` (`http://proxy.ofb.svc`) forwards to the transmitter and injects one of 8
-catalogued defects (4 contract, 4 business) into a share of the responses, chosen
+`services/proxy` (`http://proxy.ofb.svc`) forwards to the transmitter and injects one of 10
+catalogued defects (4 contract, 6 business) into a share of the responses, chosen
 deterministically from a seed and the request. Every exchange gets a label (ground truth) in
 `s3://lakehouse/labels/run=<run_id>/`. `make up` deploys it.
 

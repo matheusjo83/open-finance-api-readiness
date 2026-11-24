@@ -6,7 +6,9 @@ Transitions, applied lazily whenever a consent is read:
 - AWAITING_AUTHORISATION for more than 60 minutes becomes REJECTED (ASPSP, CONSENT_EXPIRED);
 - AUTHORISED past expirationDateTime becomes REJECTED (ASPSP, CONSENT_MAX_DATE_REACHED);
 - DELETE moves AWAITING_AUTHORISATION or AUTHORISED to REJECTED (USER, CUSTOMER_MANUALLY_REVOKED,
-  or CUSTOMER_MANUALLY_REJECTED before authorisation).
+  or CUSTOMER_MANUALLY_REJECTED before authorisation);
+- POST /extends on an AUTHORISED consent changes its expirationDateTime (or makes it
+  indeterminate) and records the extension; its history is GET /extensions, newest first.
 """
 
 from __future__ import annotations
@@ -38,6 +40,18 @@ class Rejection:
 
 
 @dataclass
+class Extension:
+    """One renewal: the expiration it set and the one it replaced (None: indeterminate)."""
+
+    requested: datetime
+    expiration: datetime | None
+    previous: datetime | None
+    cpf: str
+    ip_address: str
+    user_agent: str
+
+
+@dataclass
 class Consent:
     consent_id: str
     cpf: str
@@ -49,6 +63,7 @@ class Consent:
     status_updated: datetime | None = None
     rejection: Rejection | None = None
     linked: bool | None = None
+    extensions: list[Extension] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.status_updated is None:

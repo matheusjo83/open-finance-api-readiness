@@ -24,6 +24,10 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
 - per customer, `BALANCE_CONSENTS` (default 2) new consents are created (201), authorised
   (`/mock`) and read, and each reads every balance again. A request of its own means a draw of
   its own, so the balance rule gets more independent cases;
+- per customer, a consent is created, authorised and read, renewed twice (201: 180 and 300 days
+  ahead, with the consent as the bearer and the logged user's address and agent), its renewal
+  history read with each client token (a draw each), the consent read again, and two renewals
+  that must be refused (422): the revoked seeded consent, and this consent to an earlier date;
 - for the first customer: an unknown account (404), and a consent lifecycle: create, authorise,
   read, use, revoke (204), read again.
 
@@ -36,7 +40,7 @@ consent after it. When a full page comes without `links.next`, the walk
 asks for the next page number anyway, a careful client's probe. A dropped next link then
 shows up as a later page with items.
 
-It covers the 9 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
+It covers the 11 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
 id joins the result with the proxy's label. With 5 customers it makes about 270 calls;
 with 50, about 2,400.
 

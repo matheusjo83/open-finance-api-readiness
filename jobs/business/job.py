@@ -20,6 +20,7 @@ from rules import CONTRACT_SCHEMA, EXCHANGE_SCHEMA, build
 NAMESPACE = f"{CATALOG}.ofb"
 # Write order: bronze, silver, gold.
 TABLES = ["exchanges", "contract_results", "consent_reads", "balances", "listing_pages", "listing_items",
+          "extension_items", "renewals",
           "business_checks"]
 
 
