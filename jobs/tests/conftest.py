@@ -25,6 +25,9 @@ def spark():
         pytest.exit(f"{RUNS} has no exported runs: run `make jobs-test` at the repository root", returncode=2)
     session = (SparkSession.builder.master("local[2]").appName("jobs-tests")
                .config("spark.sql.shuffle.partitions", "2").config("spark.ui.enabled", "false")
+               # The session caches the tables of every exported run (eight since the renewal
+               # classes); the default 1g heap ran out on a CI runner (decision 38).
+               .config("spark.driver.memory", "2g")
                .config("spark.sql.session.timeZone", "UTC").getOrCreate())
     session.sparkContext.setLogLevel("ERROR")
     yield session
