@@ -24,7 +24,8 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 CONTRACT_CLASSES = ["missing-required-field", "invalid-format", "missing-interaction-id", "undeclared-field"]
-BUSINESS_CLASSES = ["inconsistent-balance", "broken-pagination", "consent-not-enforced", "transaction-outside-window"]
+BUSINESS_CLASSES = ["inconsistent-balance", "broken-pagination", "consent-not-enforced", "transaction-outside-window",
+                    "broken-extension-history", "extension-not-reflected"]
 LAYER_OF = {**{c: "contract" for c in CONTRACT_CLASSES}, **{c: "business" for c in BUSINESS_CLASSES}}
 # The classes each rule is meant to find (precision per rule). The schema rules for status,
 # content type and operation aim at no class in particular: any contract defect counts.
@@ -40,6 +41,8 @@ TARGETS = {
     "pagination.total-records": ["broken-pagination"],
     "consent.enforced": ["consent-not-enforced"],
     "transactions.within-window": ["transaction-outside-window"],
+    "extensions.history-consistent": ["broken-extension-history"],
+    "consent.extension-reflected": ["extension-not-reflected"],
 }
 CLEAN = "clean"
 Z = 1.959964  # 95 %

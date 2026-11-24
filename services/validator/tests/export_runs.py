@@ -25,7 +25,8 @@ from transmitter.app import create_app as create_transmitter
 
 from .conftest import NOW, SPECS, load_specs, only, zero_rates
 
-BUSINESS = ["inconsistent-balance", "broken-pagination", "consent-not-enforced", "transaction-outside-window"]
+BUSINESS = ["inconsistent-balance", "broken-pagination", "consent-not-enforced", "transaction-outside-window",
+            "broken-extension-history", "extension-not-reflected"]
 SCENARIOS = {"clean": zero_rates(), "default": parse_rates(None), **{d: only(d) for d in BUSINESS}}
 
 

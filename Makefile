@@ -245,7 +245,7 @@ campaign:
 # A focused campaign: the same, with the contract classes off and the business classes boosted
 # (FOCUSED_RATES), to measure each business rule on many cases. Reported apart from the
 # reference campaign: the mix is artificial (docs/report.md, decision 37).
-FOCUSED_RATES ?= {"missing-required-field": 0, "invalid-format": 0, "missing-interaction-id": 0, "undeclared-field": 0, "inconsistent-balance": 0.4, "broken-pagination": 0.3, "consent-not-enforced": 0.2, "transaction-outside-window": 0.1}
+FOCUSED_RATES ?= {"missing-required-field": 0, "invalid-format": 0, "missing-interaction-id": 0, "undeclared-field": 0, "inconsistent-balance": 0.3, "broken-pagination": 0.25, "consent-not-enforced": 0.1, "transaction-outside-window": 0.05, "broken-extension-history": 0.15, "extension-not-reflected": 0.15}
 focused-campaign:
 	scripts/campaign.sh "$(SEEDS)" "$(CUSTOMERS)" "$(or $(REPORT_NAME),focused-$$(date -u +%Y%m%d))" '$(FOCUSED_RATES)'
 

@@ -3,8 +3,10 @@
 Input: the validator's exchange log and contract results (JSONL). Output, as DataFrames:
 
 - bronze: exchanges, contract_results (as read, typed);
-- silver: consent_reads, balances, listing_pages, listing_items (parsed from the responses
-  that passed the contract layer: verdict pass or warn);
+- silver: consent_reads, balances, listing_pages, listing_items, extension_items (parsed from
+  the responses that passed the contract layer: verdict pass or warn), and renewals (the
+  consent renewals that got a 201, with the date the walk asked for and whether the response
+  passed the contract layer);
 - gold: business_checks, one row per rule evaluated on an exchange, with outcome pass, finding
   or inconclusive.
 
@@ -22,6 +24,8 @@ ACCOUNTS_LIST = "accountsGetAccounts"
 BALANCES = "accountsGetAccountsAccountIdBalances"
 TRANSACTIONS = "accountsGetAccountsAccountIdTransactions"
 TRANSACTIONS_CURRENT = "accountsGetAccountsAccountIdTransactionsCurrent"
+RENEWAL = "consentsPostConsentsConsentIdExtends"
+EXTENSIONS = "consentsGetConsentsConsentIdExtensions"
 # Only reads: the POST answers AWAITING_AUTHORISATION, and the authorisation happens outside the API.
 CONSENT_READS = ["consentsGetConsentsConsentId"]
 LISTINGS = [ACCOUNTS_LIST, TRANSACTIONS, TRANSACTIONS_CURRENT]
@@ -54,6 +58,9 @@ CONSENT_BODY = T.StructType([T.StructField("data", T.StructType([
     T.StructField("consentId", S), T.StructField("status", S), T.StructField("expirationDateTime", S)]))])
 BALANCE_BODY = T.StructType([T.StructField("data", T.StructType([
     T.StructField("availableAmount", T.StructType([T.StructField("amount", S)]))]))])
+EXTENSIONS_BODY = T.StructType([T.StructField("data", T.ArrayType(T.StructType([
+    T.StructField("expirationDateTime", S), T.StructField("previousExpirationDateTime", S),
+    T.StructField("requestDateTime", S)])))])
 LISTING_BODY = T.StructType([
     T.StructField("data", T.ArrayType(T.StructType([
         T.StructField("accountId", S), T.StructField("transactionId", S),
@@ -69,6 +76,10 @@ LISTING_BODY = T.StructType([
 
 def _param(name: str) -> Column:
     return F.nullif(F.regexp_extract(F.coalesce(F.col("query"), F.lit("")), rf"(?:^|&){name}=([^&]*)", 1), F.lit(""))
+
+
+def _consent_of_path() -> Column:
+    return F.nullif(F.regexp_extract("path", r"/consents/v\d+/consents/([^/]+)/", 1), F.lit(""))
 
 
 def _account_id() -> Column:
@@ -141,7 +152,35 @@ def silver(ok: DataFrame) -> dict[str, DataFrame]:
                      F.col("item.completedAuthorisedPaymentType").alias("payment_type"),
                      F.col("item.transactionAmount.amount").cast(AMOUNT).alias("amount"),
                      F.col("item.transactionDateTime").alias("transaction_date_time")))
-    return {"consent_reads": consents, "balances": balances, "listing_pages": pages.drop("data"), "listing_items": items}
+    histories = (ok.where(F.col("operation") == EXTENSIONS)
+                 .withColumn("body", F.from_json("response_body", EXTENSIONS_BODY))
+                 .select(*keys, _consent_of_path().alias("consent_id"), F.posexplode("body.data").alias("item_index", "item"))
+                 .select(*keys, "consent_id", "item_index",
+                         F.to_timestamp("item.expirationDateTime").alias("expiration_ts"),
+                         F.to_timestamp("item.previousExpirationDateTime").alias("previous_ts"),
+                         F.to_timestamp("item.requestDateTime").alias("request_ts")))
+    return {"consent_reads": consents, "balances": balances, "listing_pages": pages.drop("data"), "listing_items": items,
+            "extension_items": histories}
+
+
+def renewals(exchanges: DataFrame, ok: DataFrame) -> DataFrame:
+    """The renewals that got a 201: the expiration the walk asked for (its own request body), and
+    whether the response passed the contract layer. A 201 the contract layer failed may or may
+    not have taken effect, so what follows it is inconclusive."""
+    usable_ids = ok.select("interaction_id", F.lit(True).alias("usable"))
+    return (exchanges.where((F.col("operation") == RENEWAL) & (F.col("status") == 201))
+            .select("run_id", "walk_id", "seq", "interaction_id", _consent_of_path().alias("consent_id"),
+                    F.to_timestamp(F.get_json_object("request_body", "$.data.expirationDateTime")).alias("requested_ts"))
+            .join(usable_ids, "interaction_id", "left").withColumn("usable", F.coalesce("usable", F.lit(False))))
+
+
+def _last_renewal(df: DataFrame, renewals_df: DataFrame, key: str) -> DataFrame:
+    """df joined with the last 201 renewal of the same consent, earlier in the walk (if any)."""
+    r = renewals_df.select(F.col("walk_id").alias("r_walk"), F.col("consent_id").alias("r_consent"),
+                           F.col("seq").alias("r_seq"), "requested_ts", F.col("usable").alias("renewal_usable"))
+    joined = df.join(r, (df["walk_id"] == r["r_walk"]) & (df["consent_id"] == r["r_consent"]) & (r["r_seq"] < df["seq"]), "left")
+    last = Window.partitionBy(key).orderBy(F.col("r_seq").desc_nulls_last())
+    return joined.withColumn("rank", F.row_number().over(last)).where("rank = 1").drop("rank", "r_walk", "r_consent")
 
 
 def _check(df: DataFrame, rule: str, outcome: Column, pointer: Column, detail: Column) -> DataFrame:
@@ -267,8 +306,48 @@ def gold(silver_tables: dict[str, DataFrame]) -> DataFrame:
                             F.when(not_ok, F.lit("status")),
                             F.when(not_ok, F.format_string("200 for a consent last read as %s", "consent_status")))
 
+    # consent.extension-reflected: a consent read after a renewal shows the expiration the
+    # renewal asked for. Only reads after a 201 renewal are judged; inconclusive when that
+    # renewal's response failed the contract layer.
+    renewals_df = silver_tables["renewals"]
+    reads = _last_renewal(silver_tables["consent_reads"], renewals_df, "interaction_id").where(F.col("r_seq").isNotNull())
+    stale = F.col("renewal_usable") & ~F.col("expiration_ts").eqNullSafe(F.col("requested_ts"))
+    reflected_checks = _check(reads, "consent.extension-reflected", _when(stale, ~F.col("renewal_usable")),
+                              F.when(stale, F.lit("/data/expirationDateTime")),
+                              F.when(stale, F.format_string("expirationDateTime %s, the last renewal asked for %s",
+                                                            F.col("expiration_ts").cast("string"),
+                                                            F.col("requested_ts").cast("string"))))
+
+    # extensions.history-consistent: newest first (requestDateTime not increasing), each renewal's
+    # previousExpirationDateTime is the expiration of the next (older) one, and the newest one's
+    # expiration is what the last renewal asked for (unknown when its response failed the
+    # contract layer).
+    items = silver_tables["extension_items"]
+    following = Window.partitionBy("interaction_id").orderBy("item_index")
+    chained = (items.withColumn("next_expiration", F.lead("expiration_ts").over(following))
+               .withColumn("next_request", F.lead("request_ts").over(following))
+               .withColumn("has_next", F.lead("item_index").over(following).isNotNull()))
+    broken = chained.where(F.col("has_next") & (~F.col("previous_ts").eqNullSafe(F.col("next_expiration"))
+                                                | (F.col("request_ts") < F.col("next_request"))))
+    first_broken = broken.groupBy("interaction_id").agg(F.min("item_index").alias("broken_at"))
+    pages_h = (items.groupBy("run_id", "walk_id", "seq", "interaction_id", "operation", "consent_id")
+               .agg(F.min_by("expiration_ts", "item_index").alias("head_expiration"), F.count("*").alias("items")))
+    hist = (_last_renewal(pages_h, renewals_df, "interaction_id").join(first_broken, "interaction_id", "left"))
+    head_wrong = F.col("renewal_usable") & ~F.col("head_expiration").eqNullSafe(F.col("requested_ts"))
+    wrong = F.col("broken_at").isNotNull() | F.coalesce(head_wrong, F.lit(False))
+    unknown = F.col("r_seq").isNotNull() & ~F.col("renewal_usable")
+    history_checks = _check(hist, "extensions.history-consistent", _when(wrong, unknown),
+                            F.when(F.col("broken_at").isNotNull(), F.format_string("/data/%d", "broken_at"))
+                            .when(wrong, F.lit("/data/0/expirationDateTime")),
+                            F.when(F.col("broken_at").isNotNull(),
+                                   F.format_string("renewal %d does not follow from the next one", "broken_at"))
+                            .when(wrong, F.format_string("newest renewal ends %s, the last renewal asked for %s",
+                                                         F.col("head_expiration").cast("string"),
+                                                         F.col("requested_ts").cast("string"))))
+
     return (window_checks.unionByName(dup_checks).unionByName(next_checks).unionByName(total_checks)
-            .unionByName(balance_checks).unionByName(consent_checks).select(*CHECK_COLUMNS))
+            .unionByName(balance_checks).unionByName(consent_checks).unionByName(reflected_checks)
+            .unionByName(history_checks).select(*CHECK_COLUMNS))
 
 
 def build(exchanges: DataFrame, contract: DataFrame) -> dict[str, DataFrame]:
@@ -276,6 +355,7 @@ def build(exchanges: DataFrame, contract: DataFrame) -> dict[str, DataFrame]:
     tables = bronze(exchanges, contract)
     ok = usable(tables["exchanges"], tables["contract_results"])
     tables.update(silver(ok))
+    tables["renewals"] = renewals(tables["exchanges"], ok)
     accounts_calls = ok.where(F.col("operation").startswith("accountsGet") & (F.col("status") == 200)
                               & F.col("consent").isNotNull())
     # Listing pages the contract layer left out (any status): only their place in the listing.

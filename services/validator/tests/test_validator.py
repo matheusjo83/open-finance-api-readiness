@@ -15,7 +15,8 @@ from defect_proxy.selection import parse_rates
 from .conftest import only, zero_rates
 
 CONTRACT = ["missing-required-field", "invalid-format", "missing-interaction-id", "undeclared-field"]
-BUSINESS = ["inconsistent-balance", "broken-pagination", "consent-not-enforced", "transaction-outside-window"]
+BUSINESS = ["inconsistent-balance", "broken-pagination", "consent-not-enforced", "transaction-outside-window",
+            "broken-extension-history", "extension-not-reflected"]
 # The rule each contract class must trip (it may trip others too).
 EXPECTED_RULE = {
     "missing-required-field": "schema.body",
@@ -33,8 +34,8 @@ def test_clean_transmitter_has_no_findings(validate):
     assert result.summary["verdicts"] == {"pass": len(result.results)}
     # The walk covers every implemented operation, error paths included.
     operations = {r["operation"] for r in result.results}
-    assert len(operations) == 9 and None not in operations
-    assert {401, 403, 404, 200, 201, 204} <= {r["status"] for r in result.results}
+    assert len(operations) == 11 and None not in operations
+    assert {401, 403, 404, 422, 200, 201, 204} <= {r["status"] for r in result.results}
 
 
 def test_one_result_and_one_exchange_per_label(validate):
@@ -59,6 +60,26 @@ def test_every_consent_is_read_twice_before_use(validate):
             assert reads.get(e["consent"]) == {CLIENT_TOKEN, CLIENT_TOKEN_RENEWED}, e["path"]
             used += 1
     assert used
+
+
+def test_renewals(validate):
+    """Per customer: two renewals (201), the history read with both client tokens, the consent
+    read again with the later date, and the two refusals (422)."""
+    result = validate(zero_rates())
+    by_op: dict[str, list[dict]] = {}
+    for e in sorted(result.exchanges, key=lambda e: e["seq"]):
+        by_op.setdefault(e["operation"], []).append(e)
+    customers = len({e["path"] for e in by_op["consentsGetConsentsConsentIdExtensions"]})
+    assert customers == 5
+    renewals = by_op["consentsPostConsentsConsentIdExtends"]
+    assert sorted(e["status"] for e in renewals) == [201] * 10 + [422] * 10
+    histories = by_op["consentsGetConsentsConsentIdExtensions"]
+    assert len(histories) == 10 and {e["consent"] for e in histories} == {CLIENT_TOKEN, CLIENT_TOKEN_RENEWED}
+    history = json.loads(histories[0]["response_body"])["data"]
+    assert [h["expirationDateTime"][:10] for h in history] == ["2027-09-12", "2027-05-15"]
+    assert history[0]["previousExpirationDateTime"] == history[1]["expirationDateTime"]
+    codes = {json.loads(e["response_body"])["errors"][0]["code"] for e in renewals if e["status"] == 422}
+    assert codes == {"ESTADO_CONSENTIMENTO_INVALIDO", "DATA_EXPIRACAO_INVALIDA"}
 
 
 def test_second_consent_read_is_a_draw_of_its_own(validate):

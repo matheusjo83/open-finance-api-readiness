@@ -52,7 +52,16 @@ def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict
                         seeded[consent] = authorised
         return seeded.get(token)
 
-    context = Context(substitute_consent=substitute_consent)
+    async def extensions(consent_id: str) -> list[dict]:
+        """The consent's renewal history at the transmitter, newest first (one page is enough)."""
+        response = await client.get(f"/open-banking/consents/v3/consents/{consent_id}/extensions",
+                                    params={"page-size": "1000"},
+                                    headers={"authorization": "Bearer proxy", "x-fapi-interaction-id": str(uuid.uuid4())})
+        body = parse(response)
+        data = body.get("data") if response.status_code == 200 and isinstance(body, dict) else None
+        return data if isinstance(data, list) else []
+
+    context = Context(substitute_consent=substitute_consent, extensions=extensions)
 
     async def forward(request: Request, body: bytes, authorization: str | None = None) -> httpx2.Response:
         headers = [(k, v) for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP]

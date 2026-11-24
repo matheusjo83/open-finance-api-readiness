@@ -191,3 +191,59 @@ def test_harness_rejects_out_of_spec_responses(api, seed, monkeypatch):
     customer = seed["customers"][0]
     with pytest.raises(DataValidationError):
         api.get(f"{ACCOUNTS}/accounts/{customer['accounts'][0]}/balances", token=customer["consents"][0])
+
+
+EXTENSION_HEADERS = {"x-fapi-customer-ip-address": "203.0.113.7", "x-customer-user-agent": "validator/1.0"}
+
+
+def extend(api, consent_id: str, cpf: str, days: int | None, headers=EXTENSION_HEADERS, token=None, **kwargs):
+    data = {"loggedUser": {"document": {"identification": cpf, "rel": "CPF"}}}
+    if days is not None:
+        data["expirationDateTime"] = (START + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return api.post(f"{CONSENTS}/consents/{consent_id}/extends", token=token or consent_id, json={"data": data},
+                    headers=headers, **kwargs)
+
+
+def test_consent_extensions(api, seed, clock):
+    """Two renewals: each moves the expiration (reflected in the read) and the history lists them
+    newest first, each with the expiration it replaced."""
+    cpf = seed["customers"][0]["cpf"]
+    consent_id = api.post(f"{CONSENTS}/consents", json=consent_request(cpf, days=90)).json()["data"]["consentId"]
+    api.client.post(f"/mock/consents/{consent_id}/authorise")
+    url = f"{CONSENTS}/consents/{consent_id}"
+    assert api.get(f"{url}/extensions").json()["data"] == []
+
+    first = extend(api, consent_id, cpf, 180)
+    assert first.status_code == 201
+    assert first.json()["data"]["expirationDateTime"] == "2027-05-15T12:00:00Z"
+    clock.advance(minutes=1)
+    assert extend(api, consent_id, cpf, 300).status_code == 201
+    assert api.get(url).json()["data"]["expirationDateTime"] == "2027-09-12T12:00:00Z"
+
+    history = api.get(f"{url}/extensions").json()
+    assert [(e["expirationDateTime"], e["previousExpirationDateTime"]) for e in history["data"]] == [
+        ("2027-09-12T12:00:00Z", "2027-05-15T12:00:00Z"), ("2027-05-15T12:00:00Z", "2027-02-14T12:00:00Z")]
+    assert history["data"][0]["requestDateTime"] > history["data"][1]["requestDateTime"]
+    assert history["meta"]["totalRecords"] == 2
+
+    # Indeterminate: no expirationDateTime, in the read and in the history.
+    assert extend(api, consent_id, cpf, None).status_code == 201
+    assert "expirationDateTime" not in api.get(url).json()["data"]
+    assert "expirationDateTime" not in api.get(f"{url}/extensions").json()["data"][0]
+
+
+def test_consent_extension_refusals(api, seed):
+    customer = seed["customers"][0]
+    cpf, authorised = customer["cpf"], customer["consents"][0]
+    revoked = next(c for c in customer["consents"] if c.endswith("-revoked"))
+    state = extend(api, revoked, cpf, 200)
+    assert state.status_code == 422 and state.json()["errors"][0]["code"] == "ESTADO_CONSENTIMENTO_INVALIDO"
+    earlier = extend(api, authorised, cpf, 30)  # the seeded consent runs for about a year
+    assert earlier.status_code == 422 and earlier.json()["errors"][0]["code"] == "DATA_EXPIRACAO_INVALIDA"
+    assert extend(api, authorised, cpf, 400).status_code == 422
+    assert extend(api, authorised, seed["customers"][1]["cpf"], 200).status_code == 403
+    assert extend(api, authorised, cpf, 200, token="client-credentials").status_code == 401
+    no_ip = extend(api, authorised, cpf, 200, headers={"x-customer-user-agent": "validator/1.0"}, check_request=False)
+    assert no_ip.status_code == 400
+    assert api.get(f"{CONSENTS}/consents/{authorised}/extensions").json()["data"] == []
+    assert api.get(f"{CONSENTS}/consents/urn:transmitter:unknown/extensions").status_code == 404

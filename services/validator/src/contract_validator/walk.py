@@ -5,7 +5,10 @@ detail, balances, overdraft limits, transactions over the last 12 months (page b
 again in one page of 1000) and the current transactions (every page); then each of the customer's other seeded consents (expired, revoked,
 without balances, awaiting) is read and used on the accounts list and every balance; then
 `balance_consents` new consents are created, authorised and read, and each reads every balance
-again (a request of its own, so a draw of its own). For the first customer, an unknown account
+again (a request of its own, so a draw of its own); then a consent is created, authorised, read,
+renewed twice (POST /extends, with the consent as the authorization_code token), its renewal
+history read with each client token, the consent read again, and two renewals that must be
+refused (422): of the revoked seeded consent, and to an earlier date. For the first customer, an unknown account
 and a consent lifecycle (create, authorise, read, use, revoke, read again). A consent is always
 read before it is used, so the business rules know its state, and read twice: the second read
 carries a renewed client-credentials token, so it is a request of its own (a draw of its own)
@@ -35,6 +38,10 @@ PERMISSIONS = ["ACCOUNTS_READ", "ACCOUNTS_BALANCES_READ", "ACCOUNTS_TRANSACTIONS
 CLIENT_TOKEN = "validator-client-credentials"
 # The same client after renewing its token: the second read of a consent carries it.
 CLIENT_TOKEN_RENEWED = "validator-client-credentials-renewed"
+# The renewal's required headers: the logged user's address and agent at the receiving institution.
+EXTENSION_HEADERS = {"x-fapi-customer-ip-address": "203.0.113.7", "x-customer-user-agent": "contract-validator/1.0"}
+# The renewals, in days from today: two later dates, then an earlier one (refused).
+RENEWAL_DAYS, EARLIER_DAYS = (180, 300), 100
 # The specs' default and largest page-size.
 DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE = 25, 1000
 
@@ -47,9 +54,10 @@ class Walker:
     def __init__(self, client: HttpClient, today: Callable[[], date] = date.today, balance_consents: int = 2) -> None:
         self.client, self.today, self.balance_consents = client, today, balance_consents
 
-    def call(self, method: str, url: str, token: str | None, body: dict | None = None) -> tuple[Exchange, Any]:
+    def call(self, method: str, url: str, token: str | None, body: dict | None = None,
+             extra: dict[str, str] | None = None) -> tuple[Exchange, Any]:
         parts = urlsplit(url)
-        headers = {"x-fapi-interaction-id": str(uuid.uuid4())}
+        headers = {"x-fapi-interaction-id": str(uuid.uuid4()), **(extra or {})}
         if token is not None:
             headers["authorization"] = f"Bearer {token}"
         content = None
@@ -130,6 +138,8 @@ class Walker:
                 if consent:
                     for account in customer["accounts"]:
                         yield self.call("GET", f"{ACCOUNTS}/accounts/{account}/balances", consent)[0]
+            revoked = next((c for c in customer["consents"] if c.endswith("-revoked")), None)
+            yield from self.renewals(customer["cpf"], revoked)
 
         first = seed["customers"][0]
         authorised = next(c for c in first["consents"] if c.endswith("-authorised"))
@@ -156,6 +166,31 @@ class Walker:
             self.client.request("POST", f"/mock/consents/{consent}/authorise", headers={})
             for ex in self.read_consent(consent):
                 yield ex, consent
+
+    def expiration(self, days: int) -> str:
+        return (self.today() + timedelta(days=days)).isoformat() + "T23:59:59Z"
+
+    def renew(self, consent: str, cpf: str, days: int) -> Exchange:
+        body = {"data": {"loggedUser": {"document": {"identification": cpf, "rel": "CPF"}},
+                         "expirationDateTime": self.expiration(days)}}
+        return self.call("POST", f"{CONSENTS}/consents/{consent}/extends", consent, body, EXTENSION_HEADERS)[0]
+
+    def renewals(self, cpf: str, revoked: str | None) -> Iterator[Exchange]:
+        """A consent renewed twice, its history (read with each client token, a draw each), the
+        consent read again, then two renewals the transmitter must refuse."""
+        consent = None
+        for ex, consent in self.authorised_consent(cpf):
+            yield ex
+        if not consent:
+            return
+        for days in RENEWAL_DAYS:
+            yield self.renew(consent, cpf, days)
+        for client_token in (CLIENT_TOKEN, CLIENT_TOKEN_RENEWED):
+            yield self.call("GET", f"{CONSENTS}/consents/{consent}/extensions", client_token)[0]
+        yield from self.read_consent(consent)
+        if revoked:
+            yield self.renew(revoked, cpf, RENEWAL_DAYS[0])
+        yield self.renew(consent, cpf, EARLIER_DAYS)
 
     def lifecycle(self, cpf: str) -> Iterator[Exchange]:
         consent = None

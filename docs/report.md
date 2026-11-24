@@ -78,12 +78,13 @@ For each defect seed 1..SEEDS, `make campaign` (`scripts/campaign.sh`):
 3. ends with one report over all the runs.
 
 At the end it restores the defaults (seed 42, 5 customers, default rates). With 50 customers, a
-run has about 2,850 exchanges.
+run has about 3,400 exchanges.
 
 `make focused-campaign` runs the same steps with other rates for every run (`FOCUSED_RATES`,
 the proxy's `DEFECT_RATES`): the contract classes off, and the business classes boosted
-(`inconsistent-balance` 0.4, `broken-pagination` 0.3, `consent-not-enforced` 0.2,
-`transaction-outside-window` 0.1, where each applies). Nothing is left out by the contract
+(`inconsistent-balance` 0.3, `broken-pagination` 0.25, `consent-not-enforced` 0.1,
+`transaction-outside-window` 0.05, `broken-extension-history` 0.15, `extension-not-reflected`
+0.15, where each applies; one draw allows at most 1 in all). Nothing is left out by the contract
 layer, so it measures each business rule on many cases, apart from the gating. The mix is
 artificial, so it does not replace the reference campaign's figures; the two are reported apart
 (decision 37). The gate is the same.

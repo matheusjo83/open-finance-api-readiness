@@ -31,6 +31,8 @@ way, or is incomplete, the rule reports `inconclusive` instead of guessing.
 | `pagination.total-records` | each page with `meta.totalRecords` | it differs from the items of the whole listing | the listing is incomplete |
 | `consent.enforced` | each 200 from Accounts | the consent's last read before the call (`GET /consents/{id}`) that passed the contract layer is not `AUTHORISED`, or its `expirationDateTime` has passed | no earlier read of the consent passed the contract layer |
 | `transactions.within-window` | each transactions page | a `transactionDateTime` falls outside `fromBookingDate..toBookingDate` | the query has no window |
+| `extensions.history-consistent` | each renewal history page with items | `requestDateTime` increases down the list, a `previousExpirationDateTime` is not the next renewal's `expirationDateTime`, or the newest renewal's `expirationDateTime` is not what the consent's last 201 renewal asked for | no finding, and that last renewal's response was left out by the contract layer |
+| `consent.extension-reflected` | each consent read after a 201 renewal of the consent | `expirationDateTime` is not what the last renewal asked for (the walk's own request body) | that renewal's response was left out by the contract layer: the renewal may not have taken effect |
 
 The four defect classes map to these rules:
 
@@ -38,7 +40,9 @@ The four defect classes map to these rules:
 - `broken-pagination`: `duplicate-item`, `missing-next` and `wrong-total` each map to their
   `pagination.*` rule;
 - `consent-not-enforced`: `consent.enforced`;
-- `transaction-outside-window`: `transactions.within-window`.
+- `transaction-outside-window`: `transactions.within-window`;
+- `broken-extension-history`: `extensions.history-consistent`;
+- `extension-not-reflected`: `consent.extension-reflected`.
 
 A *listing* is the set of pages of one request. Its pages share the walk, the consent, the path,
 the page size and the query apart from `page`. A listing is complete when it has pages 1..n and
@@ -73,6 +77,8 @@ its own partition (`overwritePartitions`), so a rerun does not duplicate rows.
 | silver | `balances` | balances response: `account_id`, `available_amount` (decimal) |
 | silver | `listing_pages` | page: `listing`, `page`, `page_size`, `has_next`, `total_records`, `total_pages`, `item_count`, booking window |
 | silver | `listing_items` | item of a page: `item_id`, `credit_debit_type`, `payment_type`, `amount`, `transaction_date_time` |
+| silver | `extension_items` | renewal in a history page that passed the contract layer: `consent_id`, `item_index`, `expiration_ts`, `previous_ts`, `request_ts` |
+| silver | `renewals` | renewal answered 201: `consent_id`, `requested_ts` (from the walk's request body), `usable` (its response passed the contract layer) |
 | gold | `business_checks` | rule evaluated on an exchange: `rule`, `outcome` (`pass`, `finding`, `inconclusive`), `pointer`, `detail` |
 
 Every table carries `run_id`, `walk_id`, `interaction_id` (the join key with the labels and the
@@ -86,7 +92,7 @@ make jobs-test        # local Spark over runs exported in process (no cluster)
 make business-rules   # the job over the proxy's current run (or RUN_ID=...), as a SparkApplication
 ```
 
-`make jobs-test` first exports six runs with the validator's test harness
+`make jobs-test` first exports eight runs with the validator's test harness
 (`services/validator/tests/export_runs.py`):
 
 - `clean`;

@@ -22,6 +22,8 @@ against the specification and break one of the transmitter's
 | `broken-pagination` | business | accounts list, transactions | One of: last item replaced by a copy of the first; `links.next` removed while more pages exist; `meta.totalRecords` increased | 0.05 |
 | `consent-not-enforced` | business | accounts endpoints answering 401 for a seeded expired, revoked or awaiting consent | The 401 is replaced by the 200 the customer's authorised consent gets | 0.5 |
 | `transaction-outside-window` | business | transactions with at least one item | One `transactionDateTime` moved 1 to 30 days before or after the requested window | 0.05 |
+| `broken-extension-history` | business | renewal histories with at least two renewals | One of: the list reversed (oldest first); a `previousExpirationDateTime` other than the oldest one's moved 1 to 30 days | 0.05 |
+| `extension-not-reflected` | business | consent reads of a renewed consent (the proxy asks the transmitter for its history) | `expirationDateTime` set back to the one before the last renewal | 0.05 |
 
 Two of the contract defects are not caught by validating against the schema alone, and the
 measurement should show it:
@@ -36,7 +38,9 @@ measurement should show it:
 The contract validator ([validator.md](validator.md)) has both rules.
 
 `consent-not-enforced` has a higher rate because it only applies to the few calls made with a
-non-authorised consent.
+non-authorised consent. The two renewal classes come last in the catalogue, so adding them left
+the other classes' bands of the draw, and so their decisions, as they were. The defaults add up
+to 0.95.
 
 ## Selection
 
