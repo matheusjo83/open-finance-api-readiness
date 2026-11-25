@@ -59,7 +59,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke campaign focused-campaign reports \
+  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -257,6 +257,15 @@ report-smoke:
 
 _report:
 	$(call spark_app,detection-report,jobs/report/sparkapp.yaml,-e 's|"RUNS"|"$(RUNS)"$(if $(REPORT_NAME),$(comma) "--name"$(comma) "$(REPORT_NAME)")|' -e 's|arguments: \[|arguments: [$(REPORT_ARGS)|')
+
+# A seeded 90-day history of PCM reports of both sides, with operational defects built in, and its
+# labels (docs/history.md): s3a://lakehouse/pcm/{client,server}/ and pcm-labels/ under
+# run=history-s<seed>-90d-<minutes>x<per minute>. CI uses the defaults; a campaign, every minute.
+HISTORY_SEED ?= 1
+HISTORY_MINUTES ?= 30
+HISTORY_PER_MINUTE ?= 3
+history:
+	$(call spark_app,history,jobs/history/sparkapp.yaml,-e 's|"SEED"|"$(HISTORY_SEED)"|' -e 's|"MINUTES"|"$(HISTORY_MINUTES)"|' -e 's|"PER_MINUTE"|"$(HISTORY_PER_MINUTE)"|')
 
 # A campaign: SEEDS runs (one per defect seed) with CUSTOMERS customers, validated, checked and
 # reported together as REPORT_NAME (scripts/campaign.sh). Restores the default settings at the end.

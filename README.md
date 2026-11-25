@@ -26,6 +26,7 @@ for the tool choices.
 | Contract validator | Python 3.13, openapi-core, boto3 (`services/validator`, uv.lock) | Checks every response through the proxy, results and the client's PCM reports in S3 |
 | Business rules job | PySpark 3.5.9 (`jobs/business`) | Domain rules over the validator's exchanges, Iceberg tables in `lake.ofb` |
 | Detection report | PySpark 3.5.9 (`jobs/report`) | Precision and recall per layer, class and rule against the labels |
+| History | PySpark 3.5.9 (`jobs/history`) | 90 days of PCM reports of both sides with operational defects, and their labels |
 
 ## Quickstart
 
@@ -156,6 +157,19 @@ make telemetry-smoke   # pairs the last run's reports of both sides, prints the 
 
 See [docs/telemetry.md](docs/telemetry.md) for what is measured, the fields and where the PCM's
 OpenAPI file and the portal disagree.
+
+## History
+
+`jobs/history` (a SparkApplication) generates 90 days of PCM reports of both sides, in the same
+format, with operational defects built in: slow days, outages, overload, reports late, missing or
+inconsistent, and days exactly at a threshold. Each episode is labelled per endpoint, API and day
+in `s3://lakehouse/pcm-labels/`.
+
+```bash
+make history   # 90 days, 30 minutes x 3 requests per endpoint and day (HISTORY_* to change)
+```
+
+See [docs/history.md](docs/history.md) for the classes, the edges and how the labels are built.
 
 ## Business rules job
 
