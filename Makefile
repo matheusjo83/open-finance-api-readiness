@@ -50,7 +50,7 @@ SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IM
 
 HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
-.PHONY: tools specs jars lint-specs transmitter-test proxy-test validator-test cluster platform image \
+.PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
   validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign focused-campaign reports \
   up smoke diagnose down
@@ -106,6 +106,12 @@ lint-specs: specs
 	$(SPECTRAL) lint --ruleset ruleset.yaml --fail-severity error $(SPECS:specs/%=%)
 	$(SPECTRAL) lint --ruleset ruleset.yaml --format json --quiet fixtures/defective.yml > specs/upstream/defective.json || true
 	python3 -I scripts/check-ruleset.py specs/ruleset.yaml specs/upstream/defective.json
+
+# The operational requirements (specs/operational) against the pinned specs and their own rules;
+# every check must also notice a copy broken on purpose. Runs in the validator's environment (PyYAML).
+check-requirements: $(BIN)/uv specs
+	cd services/validator && uv run --locked python -I ../../scripts/check-requirements.py \
+	  ../../specs/operational/requirements.json $(SPECS:%=../../%)
 
 # Every transmitter response, happy and error paths, validated against the pinned specs.
 transmitter-test: $(BIN)/uv specs

@@ -1,0 +1,221 @@
+{
+  "description": "Operational requirements of the pinned APIs: response time, availability, limits and PCM reporting. Every block names its sources. Checked by make check-requirements; explained in docs/operational.md.",
+  "retrieved": "2026-11-25",
+  "sources": {
+    "in-615": {
+      "title": "IN BCB 615 of 2025-05-06, Manual de APIs do Open Finance 7.0",
+      "version": "7.0 (2025-05-06)",
+      "url": "https://www.bcb.gov.br/content/estabilidadefinanceira/especialnor/IN615.pdf"
+    },
+    "in-706": {
+      "title": "IN BCB 706 of 2026-01-29, Manual de Monitoramento do Open Finance 3.0",
+      "version": "3.0 (2026-01-29), read in a third-party reproduction",
+      "url": "https://www.legisweb.com.br/legislacao/?id=490247"
+    },
+    "portal-referencia": {
+      "title": "Portal do Open Finance, Requisitos não funcionais: Referência",
+      "version": "27 (2026-10-28)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/17957025"
+    },
+    "portal-2.1.I": {
+      "title": "Portal do Open Finance, 2.1.I Tempo de resposta de APIs",
+      "version": "35 (2026-06-09)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1645182984"
+    },
+    "portal-2.1.II": {
+      "title": "Portal do Open Finance, 2.1.II Disponibilidade das APIs",
+      "version": "32 (2026-06-09)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1644920842"
+    },
+    "portal-2.1.III": {
+      "title": "Portal do Open Finance, 2.1.III Volume de requisições com status code HTTP 529",
+      "version": "28 (2026-06-09)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1645215749"
+    },
+    "portal-2.4": {
+      "title": "Portal do Open Finance, 2.4 Reporte de informações",
+      "version": "26 (2026-06-09)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1646657540"
+    },
+    "portal-pcm-sla-7d": {
+      "title": "Portal do Open Finance, PCM: SLA de envio de reportes, 99% até 7 dias",
+      "version": "6 (2026-10-27)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1506934785"
+    },
+    "portal-pcm-processing": {
+      "title": "Portal do Open Finance, PCM: Processamento",
+      "version": "12 (2025-12-03)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/37912631"
+    },
+    "portal-pcm-fields-dc": {
+      "title": "Portal do Open Finance, PCM: Campos obrigatórios e opcionais, DC",
+      "version": "16 (2026-11-18)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1211760641"
+    },
+    "portal-disponibilidade": {
+      "title": "Portal do Open Finance, Requisitos não funcionais: Disponibilidade (older method)",
+      "version": "10 (2024-06-03)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/17891406"
+    }
+  },
+  "frequency_classes": {
+    "sources": ["in-615"],
+    "sections": "5.1.1, 5.2, 5.3.2",
+    "classes": {
+      "alta": { "p95_ms": 1500, "tpm_min": 2500, "monthly_calls_min": 240 },
+      "media-alta": { "p95_ms": 1500, "tpm_min": 2000, "monthly_calls_min": 120 },
+      "media": { "p95_ms": 2000, "tpm_min": 1500, "monthly_calls_min": 30 },
+      "baixa": { "p95_ms": 4000, "tpm_min": 1000, "monthly_calls_min": 8 }
+    },
+    "alta_tpm_by_active_consents": [
+      { "up_to": 1000000, "tpm_min": 2500 },
+      { "up_to": 2000000, "tpm_min": 5000 },
+      { "up_to": 3000000, "tpm_min": 8000 },
+      { "up_to": 6000000, "tpm_min": 10000 }
+    ],
+    "alta_tpm_above_last_band": { "band": 2000000, "add_per_band": 2000 }
+  },
+  "endpoints": {
+    "sources": ["portal-referencia", "in-615"],
+    "note": "tpm_min and monthly_calls_min are null where the limit does not apply (Consents, 5.1.1 and 5.2).",
+    "apis": {
+      "consents-3.3.1": {
+        "base_path": "/open-banking/consents/v3",
+        "operations": {
+          "POST /consents": { "frequency": "alta", "p95_ms": 1500, "tpm_min": null, "monthly_calls_min": null },
+          "GET /consents/{consentId}": { "frequency": "alta", "p95_ms": 1500, "tpm_min": null, "monthly_calls_min": null },
+          "DELETE /consents/{consentId}": { "frequency": "alta", "p95_ms": 1500, "tpm_min": null, "monthly_calls_min": null },
+          "POST /consents/{consentId}/extends": { "frequency": "baixa", "p95_ms": 4000, "tpm_min": null, "monthly_calls_min": null, "divergence": "consents-renewal-frequency" },
+          "GET /consents/{consentId}/extensions": { "frequency": "baixa", "p95_ms": 4000, "tpm_min": null, "monthly_calls_min": null, "divergence": "consents-renewal-frequency" }
+        }
+      },
+      "accounts-2.4.2": {
+        "base_path": "/open-banking/accounts/v2",
+        "operations": {
+          "GET /accounts": { "frequency": "baixa", "p95_ms": 4000, "tpm_min": 1000, "monthly_calls_min": 8 },
+          "GET /accounts/{accountId}": { "frequency": "baixa", "p95_ms": 4000, "tpm_min": 1000, "monthly_calls_min": 8 },
+          "GET /accounts/{accountId}/balances": { "frequency": "alta", "p95_ms": 1500, "tpm_min": 2500, "monthly_calls_min": 420, "exception": "in-615 5.2 V" },
+          "GET /accounts/{accountId}/transactions": { "frequency": "baixa", "p95_ms": 4000, "tpm_min": 1000, "monthly_calls_min": 8 },
+          "GET /accounts/{accountId}/transactions-current": { "frequency": "alta", "p95_ms": 1500, "tpm_min": 2500, "monthly_calls_min": 240 },
+          "GET /accounts/{accountId}/overdraft-limits": { "frequency": "alta", "p95_ms": 1500, "tpm_min": 2500, "monthly_calls_min": 420, "exception": "in-615 5.2 V" }
+        }
+      }
+    }
+  },
+  "response_time": {
+    "sources": ["in-615", "portal-2.1.I"],
+    "sections": "5.3",
+    "percentile": 0.95,
+    "index": "round(0.95 * n), nearest integer (half up), 1-based in the ascending order",
+    "excluded_status": [423, 429, 529],
+    "excluded_report_status": ["PAIRED_INCONSISTENT", "DISCARDED"],
+    "min_process_timespan_ms_exclusive": 0,
+    "reported_by": "CLIENT; SERVER when the report is UNPAIRED",
+    "group_by": ["serverOrgId", "endpoint", "httpMethod", "day"],
+    "daily_rule": "P95 <= p95_ms",
+    "month": { "min_share_of_days": 0.9, "other_days_max_factor": 1.2, "days": "days with requests" }
+  },
+  "availability": {
+    "sources": ["in-615", "portal-2.1.II"],
+    "sections": "5.4",
+    "success_status": ["2XX", 422],
+    "error_status": ["5XX", 408],
+    "excluded_report_status": ["PAIRED_INCONSISTENT", "DISCARDED"],
+    "reported_by": "CLIENT; SERVER when the report is UNPAIRED",
+    "timezone": "America/Sao_Paulo",
+    "minute_available_min": 0.95,
+    "daily": "available / (available + unavailable); minutes without valid requests are undefined and left out",
+    "daily_min": 0.95,
+    "long_window_days": 90,
+    "long": "mean of the daily values of the last 90 calendar days, undefined days left out",
+    "long_min": 0.995,
+    "month": "every day at or above daily_min, and the long value of the last day at or above long_min"
+  },
+  "overload": {
+    "sources": ["in-615", "portal-2.1.III"],
+    "sections": "5.1.2",
+    "status": 529,
+    "global_tps_min": 300,
+    "tps_step": 150,
+    "denominator": "valid requests: 2XX, 5XX, 408, 422",
+    "daily_max_share_exclusive": 0.005,
+    "month": { "min_share_of_days": 0.9, "other_days_max_share": 0.05 }
+  },
+  "limits": {
+    "sources": ["in-615"],
+    "sections": "5.1.1, 5.2",
+    "traffic_exceeded_status": 429,
+    "operational_exceeded_status": 423,
+    "operational_counts": "2XX responses only; extra requests for pagination are not counted",
+    "operational_key": ["month", "endpoint", "most granular object", "customer", "receiver"],
+    "not_applicable": "Consents: neither 429 by origin nor 423"
+  },
+  "timeout": {
+    "sources": ["in-615", "portal-pcm-fields-dc"],
+    "sections": "5.5",
+    "seconds": 15,
+    "server_status": 504,
+    "client_reported_status": 408
+  },
+  "pcm_reporting": {
+    "sources": ["in-706", "portal-2.4", "portal-pcm-sla-7d", "portal-pcm-processing"],
+    "sections": "2.4",
+    "pairing_key": "fapiInteractionId",
+    "pairing_fields": ["clientOrgId", "serverOrgId", "statusCode", "httpMethod", "endpoint"],
+    "next_day_8h_min_share": 0.95,
+    "seven_days_min_share": 0.99,
+    "max_missed_days_per_month": 3
+  },
+  "worked_examples": {
+    "sources": ["in-615"],
+    "p95_index": [{ "section": "5.3.1", "n": 10555, "index": 10027 }],
+    "month_days": [
+      { "section": "5.3.3 I", "days": 30, "within_sla": 27, "above_sla_max_factor": 1.2, "compliant": true },
+      { "section": "5.3.3 II", "days": 31, "within_sla": 28, "above_sla_max_factor": 1.21, "compliant": false }
+    ],
+    "minute_availability": [{ "section": "5.4.1", "success": 255, "error": 4, "percent": 98.45 }],
+    "daily_availability": [{ "section": "5.4.1", "available": 1360, "unavailable": 30, "percent": 97.84 }]
+  },
+  "divergences": {
+    "consents-renewal-frequency": {
+      "sources": ["in-615", "portal-referencia"],
+      "what": "The manual (5) says the endpoints of the consent API must be considered alta (1500 ms); the portal's table lists extends and extensions as baixa (4000 ms).",
+      "chosen": "The portal's value: it is the one given per endpoint."
+    },
+    "p95-boundary": {
+      "sources": ["in-615", "portal-2.1.I"],
+      "what": "The manual (5.3.2) says at most the SLA (<=); its example and the portal's daily rule say below it (<).",
+      "chosen": "<=, the normative text."
+    },
+    "daily-availability-denominator": {
+      "sources": ["in-615", "portal-2.1.II"],
+      "what": "The manual's formula divides by available + unavailable minutes; the portal's steps define total_minutos as the minutes of the day.",
+      "chosen": "The manual's formula; its worked example divides by 1390, not 1440."
+    },
+    "availability-method": {
+      "sources": ["in-615", "portal-disponibilidade"],
+      "what": "The portal page of 2024 measures by polling GET /discovery/status every 30 seconds, with 3 months; the manual measures real requests by minute, with 90 days.",
+      "chosen": "The manual, which is newer."
+    },
+    "process-timespan-end": {
+      "sources": ["in-615", "portal-pcm-fields-dc"],
+      "what": "The field's definition ends the time at the first byte of the response; its filling rule and the manual end it at the last byte.",
+      "chosen": "The last byte."
+    },
+    "client-408-counting": {
+      "sources": ["portal-pcm-sla-7d"],
+      "what": "A PAIRED_INCONSISTENT report of a CLIENT with 408 counts as sent at 15000 ms or more in the rule and the example, and below 15000 ms in the note that follows.",
+      "chosen": "15000 ms or more: the rule and the example agree, and it is the timeout."
+    },
+    "overload-in-availability": {
+      "sources": ["in-615", "portal-2.1.II"],
+      "what": "529 is in the 5XX range, so literally it is an error in availability, although it is left out of the response time.",
+      "chosen": "The literal reading: 529 counts as an error in availability."
+    },
+    "response-time-day": {
+      "sources": ["in-615", "portal-2.1.I"],
+      "what": "The day's time zone is stated for availability (Brasília) and not for the response time.",
+      "chosen": "Brasília for both."
+    }
+  }
+}

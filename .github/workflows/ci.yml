@@ -1,7 +1,8 @@
-# checks: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs)
-# and tests the services against them: the transmitter (make transmitter-test), the defect
-# proxy (make proxy-test), the contract validator (make validator-test), and the business-rules
-# job and the detection report with a local Spark (make jobs-test).
+# checks: lints the pinned Open Finance Brasil specifications with Spectral (make lint-specs),
+# checks the operational requirements against them (make check-requirements) and tests the
+# services against them: the transmitter (make transmitter-test), the defect proxy (make
+# proxy-test), the contract validator (make validator-test), and the business-rules job and the
+# detection report with a local Spark (make jobs-test).
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
 # back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
@@ -40,6 +41,9 @@ jobs:
 
       - name: Lint specifications (Spectral)
         run: make lint-specs
+
+      - name: Operational requirements (against the specs, with breakages)
+        run: make check-requirements
 
       - name: Transmitter tests (responses validated against the specs)
         run: make transmitter-test

@@ -90,6 +90,14 @@ The lint fails on errors and prints warnings; the known warnings are listed in
 [docs/spec-findings.md](docs/spec-findings.md). It also checks that every `ofb-*` rule fires on
 `specs/fixtures/defective.yml`, a spec built to break each of them. Only Docker is needed.
 
+`specs/operational/requirements.json` holds the operational requirements of these APIs (response
+time, availability, limits, PCM reporting), each number with its source and the disagreements
+between sources with the reading chosen ([docs/operational.md](docs/operational.md)).
+
+```bash
+make check-requirements   # against the pinned specs and the manual's worked examples
+```
+
 The credentials in `infra/k8s/dev-credentials.yaml` and `infra/helm/seaweedfs.yaml` are fixed
 values for the disposable local cluster only.
 
