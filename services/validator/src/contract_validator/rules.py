@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qsl
 
@@ -51,6 +52,8 @@ class Exchange:
     status: int
     headers: dict[str, str]  # lower-case names
     body: bytes
+    started: datetime | None = None  # just before the request was sent
+    seconds: float = 0.0  # until the last byte of the response
 
     @property
     def interaction_id(self) -> str | None:

@@ -45,6 +45,13 @@ ACCOUNTS_VERSION := 2.4.2
 ACCOUNTS_SHA256 := 0b5b92e11a932019497f285e49ecef57bc8c3a61664a172fabe9b2324e9d8e1f
 SPECS := specs/upstream/consents-$(CONSENTS_VERSION).yml specs/upstream/accounts-$(ACCOUNTS_VERSION).yml
 
+# The PCM's API (Plataforma de Coleta de Métricas), the file the portal links as Telemetria v3.9.3.
+# Its info.version is always 1.0.0, so the commit names it. Not linted: not one of the APIs under test.
+PCM_COMMIT := de7fb6a9339cc432e3c5290a60d15ec0379d7722
+PCM_URL := https://raw.githubusercontent.com/OpenBanking-Brasil/pcm-specs/$(PCM_COMMIT)/PCM-current.openapi.yaml
+PCM_SHA256 := ecaab5db5e5e132493cb66158c599ad0c6b9de73e066c21afc8954c6492701f3
+PCM_SPEC := specs/upstream/pcm.yml
+
 SPECTRAL_IMAGE := stoplight/spectral:6.17.0@sha256:c8ffae6ee561b70e80402f1ea669e8b37c74fee48a3dbe2147b71359ed987239
 SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IMAGE)
 
@@ -52,7 +59,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke jobs-test business-rules report report-smoke campaign focused-campaign reports \
+  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -87,18 +94,21 @@ $(BIN)/kubectl:
 # Re-downloaded when the Makefile changes, so a new commit or checksum is always applied.
 define fetch_spec
 mkdir -p $(@D)
-$(CURL) -o $@.tmp $(SPECS_URL)/$(1)
+$(CURL) -o $@.tmp $(1)
 echo "$(2)  $@.tmp" | sha256sum -c --quiet
 mv $@.tmp $@
 endef
 
-specs: $(SPECS)
+specs: $(SPECS) $(PCM_SPEC)
 
 specs/upstream/consents-$(CONSENTS_VERSION).yml: Makefile
-	$(call fetch_spec,consents/$(CONSENTS_VERSION).yml,$(CONSENTS_SHA256))
+	$(call fetch_spec,$(SPECS_URL)/consents/$(CONSENTS_VERSION).yml,$(CONSENTS_SHA256))
 
 specs/upstream/accounts-$(ACCOUNTS_VERSION).yml: Makefile
-	$(call fetch_spec,accounts/$(ACCOUNTS_VERSION).yml,$(ACCOUNTS_SHA256))
+	$(call fetch_spec,$(SPECS_URL)/accounts/$(ACCOUNTS_VERSION).yml,$(ACCOUNTS_SHA256))
+
+$(PCM_SPEC): Makefile
+	$(call fetch_spec,$(PCM_URL),$(PCM_SHA256))
 
 # Lints the pinned specs (fails on errors, prints warnings), then checks that every ofb-* rule
 # fires on a fixture built to break it.
@@ -211,6 +221,10 @@ validate: validator-image
 # Joins the last run's results with the proxy's labels: the contract layer must be exact.
 validator-smoke:
 	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/validator_smoke.py
+
+# Pairs the last run's PCM reports of both sides: each exchange reported once per side, consistent.
+telemetry-smoke:
+	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/telemetry_smoke.py
 
 # The business-rules job over one run (RUN_ID, default the proxy's current run), as a
 # SparkApplication: bronze, silver and gold Iceberg tables in lake.ofb.

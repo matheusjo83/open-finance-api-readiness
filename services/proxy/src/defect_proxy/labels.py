@@ -40,13 +40,16 @@ class MemoryStore:
     def put(self, key: str, body: bytes) -> None:
         self.objects[key] = body
 
-    def records(self) -> list[dict]:
-        return [json.loads(line) for key in sorted(self.objects) for line in self.objects[key].splitlines()]
+    def records(self, prefix: str = "labels/") -> list[dict]:
+        return [json.loads(line) for key in sorted(self.objects) if key.startswith(prefix)
+                for line in self.objects[key].splitlines()]
 
 
 class LabelSink:
-    def __init__(self, store: Store, run_id: str, max_buffer: int = 500) -> None:
-        self.store, self.run_id, self.max_buffer = store, run_id, max_buffer
+    """Also writes the server's PCM reports (kind "pcm/server"), next to the labels."""
+
+    def __init__(self, store: Store, run_id: str, max_buffer: int = 500, kind: str = "labels") -> None:
+        self.store, self.run_id, self.max_buffer, self.kind = store, run_id, max_buffer, kind
         self.buffer: list[dict[str, Any]] = []
         self.lock = threading.Lock()
         self.parts = 0
@@ -55,7 +58,7 @@ class LabelSink:
 
     @property
     def prefix(self) -> str:
-        return f"labels/run={self.run_id}/"
+        return f"{self.kind}/run={self.run_id}/"
 
     def add(self, record: dict[str, Any]) -> bool:
         """Buffers a record; True when the buffer is full and should be flushed."""

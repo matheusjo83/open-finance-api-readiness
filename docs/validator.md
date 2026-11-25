@@ -82,12 +82,14 @@ responses trip nothing. `make validator-test` and `make validator-smoke` both ch
 
 ## Output
 
-Two JSONL streams per run, under the proxy's run id (from `GET /_proxy/run`), so labels, results
+Three JSONL streams per run, under the proxy's run id (from `GET /_proxy/run`), so labels, results
 and exchanges share `run=<id>`:
 
 - `s3://lakehouse/contract/run=<run_id>/part-NNNNN-<walk_id>.jsonl`: one result per exchange;
 - `s3://lakehouse/exchanges/run=<run_id>/part-NNNNN-<walk_id>.jsonl`: the exchange itself, the
-  input of the business-rules job (item 4).
+  input of the business-rules job (item 4);
+- `s3://lakehouse/pcm/client/run=<run_id>/part-NNNNN-<walk_id>.jsonl`: the client's PCM report of
+  each exchange, timed by the walk ([telemetry.md](telemetry.md)).
 
 The walk id (8 hex characters) keeps two walks over the same proxy run apart. Without a proxy
 (`TARGET` pointing straight at the transmitter), the run id is `RUN_ID`, or a generated one.
