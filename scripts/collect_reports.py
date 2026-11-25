@@ -1,6 +1,6 @@
 """Collects the current run's data from the object store, run inside the proxy's pod
 (make reports). Writes a gzipped tar to stdout with the run's labels, contract results,
-exchanges and detection report under their object keys, and run.json (the proxy's settings and
+exchanges, PCM reports of both sides and detection report under their object keys, and run.json (the proxy's settings and
 counters)."""
 
 import io
@@ -22,7 +22,8 @@ s3 = boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"], region_name=os.e
                   aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
                   config=Config(s3={"addressing_style": "path"}))
 bucket = os.environ.get("LABELS_BUCKET", "lakehouse")
-prefixes = [f"labels/run={run_id}/", f"contract/run={run_id}/", f"exchanges/run={run_id}/", f"reports/{run_id}/"]
+prefixes = [f"labels/run={run_id}/", f"contract/run={run_id}/", f"exchanges/run={run_id}/",
+            f"pcm/client/run={run_id}/", f"pcm/server/run={run_id}/", f"reports/{run_id}/"]
 
 
 def add(tar: tarfile.TarFile, name: str, body: bytes) -> None:

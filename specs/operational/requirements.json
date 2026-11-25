@@ -52,6 +52,21 @@
       "version": "16 (2026-11-18)",
       "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1211760641"
     },
+    "pcm-spec": {
+      "title": "OpenAPI of the PCM (OpenBanking-Brasil/pcm-specs, PCM-current.openapi.yaml), linked by the portal as Telemetria v3.9.3",
+      "version": "commit de7fb6a (2026-09-11); info.version says 1.0.0",
+      "url": "https://github.com/OpenBanking-Brasil/pcm-specs/blob/de7fb6a9339cc432e3c5290a60d15ec0379d7722/PCM-current.openapi.yaml"
+    },
+    "portal-pcm-consents": {
+      "title": "Portal do Open Finance, PCM: Consentimento, Regras de Obrigatoriedade (additionalInfo)",
+      "version": "13 (2026-11-17)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1622474756"
+    },
+    "portal-pcm-accounts": {
+      "title": "Portal do Open Finance, PCM: Contas, Regras de Obrigatoriedade (additionalInfo)",
+      "version": "5 (2026-10-27)",
+      "url": "https://openfinancebrasil.atlassian.net/wiki/spaces/OF/pages/1623195649"
+    },
     "portal-disponibilidade": {
       "title": "Portal do Open Finance, Requisitos não funcionais: Disponibilidade (older method)",
       "version": "10 (2024-06-03)",
@@ -158,13 +173,15 @@
     "client_reported_status": 408
   },
   "pcm_reporting": {
-    "sources": ["in-706", "portal-2.4", "portal-pcm-sla-7d", "portal-pcm-processing"],
+    "sources": ["in-706", "portal-2.4", "portal-pcm-sla-7d", "portal-pcm-processing", "pcm-spec",
+                "portal-pcm-fields-dc", "portal-pcm-consents", "portal-pcm-accounts"],
     "sections": "2.4",
     "pairing_key": "fapiInteractionId",
     "pairing_fields": ["clientOrgId", "serverOrgId", "statusCode", "httpMethod", "endpoint"],
     "next_day_8h_min_share": 0.95,
     "seven_days_min_share": 0.99,
-    "max_missed_days_per_month": 3
+    "max_missed_days_per_month": 3,
+    "process_timespan": "whole milliseconds, rounded up (a report with 0 is left out of the response time)"
   },
   "worked_examples": {
     "sources": ["in-615"],
@@ -211,6 +228,16 @@
       "sources": ["in-615", "portal-2.1.II"],
       "what": "529 is in the 5XX range, so literally it is an error in availability, although it is left out of the response time.",
       "chosen": "The literal reading: 529 counts as an error in availability."
+    },
+    "pcm-spec-domains": {
+      "sources": ["pcm-spec", "portal-pcm-consents"],
+      "what": "The PCM's OpenAPI file and the portal's pages give other domains: rejectedBy INICIADORA, USUARIO, DETENTORA (portal USER, ASPSP, TPP); the server's dropReason has 'NO_CREDENTIAL, NONE' as one value and no CREDENTIAL_UNAVAILABLE; authorisationFlowIntent CIBA_FLOW (portal CIBA); naturezaJurídica with an accent.",
+      "chosen": "The portal's pages, which are newer than the file; the reports' schema errors on these values are expected (services/validator/tests/test_telemetry.py)."
+    },
+    "process-timespan-integer": {
+      "sources": ["pcm-spec", "portal-pcm-fields-dc"],
+      "what": "processTimespan is whole milliseconds in its definition and a number with an example of 120.000001.",
+      "chosen": "Whole milliseconds, rounded up, so a fast call is not reported as 0 and left out."
     },
     "response-time-day": {
       "sources": ["in-615", "portal-2.1.I"],

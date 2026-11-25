@@ -22,9 +22,10 @@ is requested anyway (a careful client's probe), and the listing goes on from the
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Callable, Iterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -65,10 +66,13 @@ class Walker:
             headers["content-type"] = "application/json"
             content = json.dumps(body).encode()
         target = parts.path + (f"?{parts.query}" if parts.query else "")
-        response = self.client.request(method, target, headers=headers, content=content)
+        started, t0 = datetime.now(timezone.utc), time.perf_counter()
+        response = self.client.request(method, target, headers=headers, content=content)  # reads the whole body
+        seconds = time.perf_counter() - t0
         ex = Exchange(method=method, path=parts.path, query=parts.query, request_headers=headers,
                       request_body=content, status=response.status_code,
-                      headers={k.lower(): v for k, v in response.headers.items()}, body=response.content)
+                      headers={k.lower(): v for k, v in response.headers.items()}, body=response.content,
+                      started=started, seconds=seconds)
         try:
             document = response.json() if "json" in ex.content_type and ex.body else None
         except ValueError:

@@ -36,7 +36,7 @@ minutes, so the live capture and the history are separate. Items 13 to 16 and 18
 (measurement); item 17 changes the transmitter and is left for v1.5.0 (limits).
 
 - [x] **13. Requirements**: response time, availability, limits and PCM reporting per endpoint of the pinned APIs, each number with its source and version, the disagreements between sources with the reading chosen, checked against the specs and the manual's worked examples ([operational.md](operational.md), decisions 39 and 40).
-- [ ] **14. Telemetry**: the validator (client) and the proxy (server) write one PCM-style report per exchange, joined by `x-fapi-interaction-id`; the PCM's OpenAPI file pinned by commit.
+- [x] **14. Telemetry**: the validator (client) and the proxy (server) write one PCM report per exchange, paired by `x-fapi-interaction-id` and checked in the cluster (`make telemetry-smoke`); the PCM's OpenAPI file pinned by commit. Where that file and the portal disagree, the reports follow the portal ([telemetry.md](telemetry.md), decision 41).
 - [ ] **15. 90-day history**: a seeded generator of reports of both sides, with defect episodes labelled per endpoint and day; small in CI, full in the campaign.
 - [ ] **16. Operational job**: PySpark computes the P95, availability, overload and reporting metrics of the requirements into Iceberg tables.
 - [ ] **17. Limits** (v1.5.0): the transmitter applies the traffic and monthly limits; k6 drives them; early 423 or 429, 429 on Consents and miscounted calls are detected.

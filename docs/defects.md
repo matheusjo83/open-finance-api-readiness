@@ -82,6 +82,9 @@ on `POST /_proxy/flush` and at shutdown. A failed write keeps the records for th
 | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `LABELS_BUCKET`, `AWS_REGION` | SeaweedFS, `lakehouse` | Label store (`labels-credentials` Secret) |
 | `LABELS_FLUSH_SECONDS` | `5` | Write interval |
 
+The proxy also writes the server's PCM report of every exchange, next to the labels
+(`s3://lakehouse/pcm/server/run=<run_id>/`, [telemetry.md](telemetry.md)).
+
 The proxy forwards the caller's `Host`, so the links the transmitter builds (`self`, `next`, …)
 point back at the proxy and pagination stays behind it.
 

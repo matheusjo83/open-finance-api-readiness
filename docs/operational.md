@@ -17,7 +17,8 @@ the file broken on purpose (22 of them).
 - **Manual de Monitoramento 3.0** (IN BCB 706 of 2026-01-29): what is monitored and the PCM
   reporting goals. Read in a third-party reproduction (LegisWeb), not in the original.
 - **Portal do Open Finance**: the per-endpoint table (Referência) and the calculation pages 2.1.I
-  to 2.1.III, 2.4 and the PCM's (Plataforma de Coleta de Métricas).
+  to 2.1.III, 2.4 and the PCM's (Plataforma de Coleta de Métricas), with its rules per field.
+- **The PCM's OpenAPI file**, at a fixed commit: the reports' format ([telemetry.md](telemetry.md)).
 
 ## Per endpoint
 
@@ -68,6 +69,8 @@ Each case is in the file with the reading chosen.
 | `client-408-counting` | The PCM page counts a client's 408 at 15000 ms or more, then below it | 15000 ms or more |
 | `overload-in-availability` | 529 is 5XX, so literally an error in availability, but out of the response time | Literal |
 | `response-time-day` | The time zone of the day is stated for availability only | Brasília for both |
+| `pcm-spec-domains` | The PCM's OpenAPI file and the portal give other values for four `additionalInfo` fields | The portal ([telemetry.md](telemetry.md)) |
+| `process-timespan-integer` | Whole milliseconds by definition, `120.000001` as example | Whole, rounded up |
 
 The manual cuts its percentages after two decimals: 255/259 is 98.4556 %, published as 98.45 %.
 That only matters when comparing with published figures; the rules use the exact values.

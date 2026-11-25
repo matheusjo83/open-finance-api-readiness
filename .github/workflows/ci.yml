@@ -7,8 +7,9 @@
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
 # back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
 # the cluster (the proxy's labels are read back from SeaweedFS), and runs the contract validator
-# through the proxy as a Job, joining its results with the labels, then the business-rules job
-# and the detection report over that run as SparkApplications (the report gates the invariants).
+# through the proxy as a Job, joining its results with the labels and pairing the PCM reports of
+# both sides, then the business-rules job and the detection report over that run as
+# SparkApplications (the report gates the invariants).
 name: CI
 
 on:
@@ -98,13 +99,16 @@ jobs:
       - name: Contract validator (image, Job through the proxy, results joined with the labels)
         run: make validate validator-smoke
 
+      - name: Telemetry (PCM reports of both sides, paired)
+        run: make telemetry-smoke
+
       - name: Business rules (SparkApplication, Iceberg tables)
         run: make business-rules
 
       - name: Detection report (SparkApplication, gate on precision and recall)
         run: make report-smoke
 
-      # The run's labels, contract results, exchanges and detection report, and the jobs' logs.
+      # The run's labels, contract results, exchanges, PCM reports and detection report, and the jobs' logs.
       - name: Collect reports
         if: always()
         run: make reports || true

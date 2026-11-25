@@ -45,8 +45,10 @@ def only(defect_id: str) -> dict[str, float]:
 class Run:
     """A validation run through the proxy: the summary, the results and the proxy's labels."""
 
-    def __init__(self, summary: dict, results: list[dict], exchanges: list[dict], labels: list[dict]) -> None:
+    def __init__(self, summary: dict, results: list[dict], exchanges: list[dict], labels: list[dict],
+                 client_reports: list[dict], server_reports: list[dict]) -> None:
         self.summary, self.results, self.exchanges, self.labels = summary, results, exchanges, labels
+        self.client_reports, self.server_reports = client_reports, server_reports
         self.label_of = {r["interaction_id"]: r for r in labels}
 
     def joined(self) -> list[tuple[dict, dict]]:
@@ -70,7 +72,8 @@ def validate(specs):
         store = MemoryStore()
         summary = run(client, specs, store, walker=Walker(client, today=lambda: NOW.date()))
         client.post("/_proxy/flush")
-        return Run(summary, store.records("contract/"), store.records("exchanges/"), labels.records())
+        return Run(summary, store.records("contract/"), store.records("exchanges/"), labels.records(),
+                   store.records("pcm/client/"), labels.records("pcm/server/"))
 
     yield make
     for client in opened:

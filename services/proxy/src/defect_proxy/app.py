@@ -1,8 +1,9 @@
 """The proxy: forwards every request to the transmitter, may inject one catalogued defect into
-the response, and labels each Open Finance exchange (docs/defects.md).
+the response, labels each Open Finance exchange (docs/defects.md) and reports it as the server
+(docs/telemetry.md).
 
 Own endpoints, under /_proxy: healthz, run (settings and counters) and flush (write the
-buffered labels now). Everything else, /mock/* included, goes to the transmitter.
+buffered labels and reports now). Everything else, /mock/* included, goes to the transmitter.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Any
 
 import httpx2
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
@@ -23,6 +25,7 @@ from starlette.routing import Route
 from .catalogue import Context, Exchange, route_of
 from .labels import LabelSink
 from .selection import choose
+from .telemetry import Parties, TelemetryMiddleware
 
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authorization",
               "proxy-authenticate", "host", "content-length", "content-encoding", "accept-encoding"}
@@ -33,7 +36,10 @@ def new_run_id() -> str:
 
 
 def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict[str, float], sink: LabelSink,
-               flush_seconds: float = 5.0) -> Starlette:
+               flush_seconds: float = 5.0, parties: Parties = Parties()) -> Starlette:
+    # The server's PCM reports: same store and run as the labels.
+    reports = LabelSink(sink.store, sink.run_id, sink.max_buffer, kind="pcm/server")
+
     if isinstance(upstream, str):
         client = httpx2.AsyncClient(base_url=upstream, timeout=10.0)
     else:  # tests: the transmitter in process
@@ -136,26 +142,33 @@ def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict
 
     async def run(request: Request) -> Response:
         return JSONResponse({"run_id": sink.run_id, "seed": seed, "rates": rates, "labels_prefix": sink.prefix,
-                             "labels_written": sink.written, **counters})
+                             "labels_written": sink.written, "reports_prefix": reports.prefix,
+                             "reports_written": reports.written, **counters})
 
     async def flush(request: Request) -> Response:
         await sink.aflush()
-        return JSONResponse({"run_id": sink.run_id, "labels_written": sink.written, "labels_prefix": sink.prefix})
+        await reports.aflush()
+        return JSONResponse({"run_id": sink.run_id, "labels_written": sink.written, "labels_prefix": sink.prefix,
+                             "reports_written": reports.written, "reports_prefix": reports.prefix})
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):
         async def periodic() -> None:
             while True:
                 await asyncio.sleep(flush_seconds)
-                with contextlib.suppress(Exception):
-                    await sink.aflush()
+                for each in (sink, reports):
+                    with contextlib.suppress(Exception):
+                        await each.aflush()
 
         task = asyncio.create_task(periodic())
         try:
             yield
         finally:
             task.cancel()
-            await sink.aflush()
+            try:
+                await sink.aflush()
+            finally:
+                await reports.aflush()
             await client.aclose()
 
     methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
@@ -164,4 +177,4 @@ def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict
         Route("/_proxy/run", run),
         Route("/_proxy/flush", flush, methods=["POST"]),
         Route("/{path:path}", proxy, methods=methods),
-    ], lifespan=lifespan)
+    ], lifespan=lifespan, middleware=[Middleware(TelemetryMiddleware, sink=reports, parties=parties)])

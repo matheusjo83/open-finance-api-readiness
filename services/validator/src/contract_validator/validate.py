@@ -1,5 +1,5 @@
-"""One validation run: walk the target, check every Open Finance exchange, write the results
-and the exchanges, and return a summary."""
+"""One validation run: walk the target, check every Open Finance exchange, write the results,
+the exchanges and the client's PCM reports, and return a summary."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any
 from .results import PartWriter, Store
 from .rules import RULES, Exchange, check
 from .spec import Spec, spec_for
+from .telemetry import Parties, client_record
 from .walk import HttpClient, Walker
 
 
@@ -59,11 +60,12 @@ def exchange_record(run_id: str, walk_id: str, seq: int, ex: Exchange, operation
 
 
 def run(client: HttpClient, specs: list[Spec], store: Store, run_id: str | None = None,
-        walker: Walker | None = None) -> dict[str, Any]:
+        walker: Walker | None = None, parties: Parties = Parties()) -> dict[str, Any]:
     run_id = proxy_run_id(client) or run_id or new_run_id()
     walk_id = uuid.uuid4().hex[:8]
     results = PartWriter(store, f"contract/run={run_id}/", walk_id)
     exchanges = PartWriter(store, f"exchanges/run={run_id}/", walk_id)
+    reports = PartWriter(store, f"pcm/client/run={run_id}/", walk_id)
     verdicts, by_rule = collections.Counter(), collections.Counter()
     seq = 0
     for ex in (walker or Walker(client)).walk():
@@ -74,13 +76,18 @@ def run(client: HttpClient, specs: list[Spec], store: Store, run_id: str | None 
         record = result_record(run_id, walk_id, seq, spec, ex)
         results.add(record)
         exchanges.add(exchange_record(run_id, walk_id, seq, ex, record["operation"]))
+        telemetry = client_record(run_id, walk_id, spec, ex, parties)
+        if telemetry is not None:
+            reports.add(telemetry)
         verdicts[record["verdict"]] += 1
         by_rule.update(record["rules"])
     results.flush()
     exchanges.flush()
+    reports.flush()
     return {
         "run_id": run_id, "walk_id": walk_id, "exchanges": results.written,
         "results": f"contract/run={run_id}/", "exchange_log": f"exchanges/run={run_id}/",
+        "pcm_reports": reports.written, "telemetry": f"pcm/client/run={run_id}/",
         "verdicts": dict(sorted(verdicts.items())),
         "by_rule": {rule: by_rule[rule] for rule in RULES if by_rule[rule]},
     }

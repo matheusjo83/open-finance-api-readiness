@@ -3,6 +3,8 @@
 - s3://<bucket>/contract/run=<run_id>/part-NNNNN-<walk_id>.jsonl: one result per exchange.
 - s3://<bucket>/exchanges/run=<run_id>/part-NNNNN-<walk_id>.jsonl: the exchange itself
   (request and response), the input of the business-rules job (item 4).
+- s3://<bucket>/pcm/client/run=<run_id>/part-NNNNN-<walk_id>.jsonl: the client's PCM report of
+  each exchange (telemetry.py, item 14).
 
 The walk id keeps the parts of two walks over the same proxy run apart.
 """

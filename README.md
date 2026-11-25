@@ -22,8 +22,8 @@ for the tool choices.
 | CloudNativePG | chart 0.29.1 (operator 1.30.1, Postgres 18.6) | Iceberg catalog database |
 | SeaweedFS | chart 4.54.0 | S3 object store (bucket `lakehouse`) |
 | Synthetic transmitter | Python 3.13, FastAPI (`services/transmitter`, uv.lock) | Consents and Accounts APIs over a seeded dataset |
-| Defect proxy | Python 3.13, Starlette, boto3 (`services/proxy`, uv.lock) | Injects catalogued defects, labels every exchange in S3 |
-| Contract validator | Python 3.13, openapi-core, boto3 (`services/validator`, uv.lock) | Checks every response through the proxy, results in S3 |
+| Defect proxy | Python 3.13, Starlette, boto3 (`services/proxy`, uv.lock) | Injects catalogued defects, labels every exchange and reports it as the server, in S3 |
+| Contract validator | Python 3.13, openapi-core, boto3 (`services/validator`, uv.lock) | Checks every response through the proxy, results and the client's PCM reports in S3 |
 | Business rules job | PySpark 3.5.9 (`jobs/business`) | Domain rules over the validator's exchanges, Iceberg tables in `lake.ofb` |
 | Detection report | PySpark 3.5.9 (`jobs/report`) | Precision and recall per layer, class and rule against the labels |
 
@@ -143,6 +143,19 @@ make validator-smoke   # joins its results with the proxy's labels, prints the o
 ```
 
 See [docs/validator.md](docs/validator.md) for the walk, the rules and the result format.
+
+## Telemetry
+
+The validator and the proxy also report every exchange as the client and the server would to the
+PCM (Plataforma de Coleta de Métricas), timed on each side, in `s3://lakehouse/pcm/client/` and
+`s3://lakehouse/pcm/server/` under the run id. The operational metrics are computed from them.
+
+```bash
+make telemetry-smoke   # pairs the last run's reports of both sides, prints the client's P95
+```
+
+See [docs/telemetry.md](docs/telemetry.md) for what is measured, the fields and where the PCM's
+OpenAPI file and the portal disagree.
 
 ## Business rules job
 
