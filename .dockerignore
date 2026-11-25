@@ -1,6 +1,7 @@
 # Spark image (make image): only the jobs, without their test project.
 *
 !jobs/
+!specs/operational/requirements.json
 !.cache/jars/*.jar
 jobs/.venv
 jobs/tests

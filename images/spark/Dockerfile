@@ -13,6 +13,8 @@ USER root
 COPY --chmod=644 .cache/jars/*.jar /opt/spark/jars/
 
 COPY jobs/ /opt/jobs/
+# The operational requirements, read by the history job.
+COPY specs/operational/requirements.json /opt/specs/operational/requirements.json
 
 # The image's spark user.
 USER 185

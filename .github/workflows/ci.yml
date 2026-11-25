@@ -9,7 +9,8 @@
 # the cluster (the proxy's labels are read back from SeaweedFS), and runs the contract validator
 # through the proxy as a Job, joining its results with the labels and pairing the PCM reports of
 # both sides, then the business-rules job and the detection report over that run as
-# SparkApplications (the report gates the invariants).
+# SparkApplications (the report gates the invariants), and generates a 90-day history of PCM
+# reports with operational defects (a SparkApplication).
 name: CI
 
 on:
@@ -107,6 +108,9 @@ jobs:
 
       - name: Detection report (SparkApplication, gate on precision and recall)
         run: make report-smoke
+
+      - name: History (SparkApplication, 90 days of PCM reports with labels)
+        run: make history
 
       # The run's labels, contract results, exchanges, PCM reports and detection report, and the jobs' logs.
       - name: Collect reports

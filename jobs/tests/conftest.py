@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 JOBS = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(JOBS / "business"), str(JOBS / "report"), str(JOBS / "lib")]
+sys.path[:0] = [str(JOBS / "business"), str(JOBS / "report"), str(JOBS / "history"), str(JOBS / "lib")]
 
 from pyspark.sql import SparkSession  # noqa: E402
 
