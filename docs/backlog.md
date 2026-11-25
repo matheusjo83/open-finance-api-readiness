@@ -29,11 +29,23 @@ Items 8 to 12 were released together as [v1.3.0](https://github.com/matheusjo83/
 - [x] **11. Consent renewal**: `POST /consents/{consentId}/extends` and `GET /consents/{consentId}/extensions` in the transmitter, the walk and the validator, two business classes (`broken-extension-history`, `extension-not-reflected`) with a rule each (decision 38). Multiple approvers and the permission-group rules need business customers and stay for later (below).
 - [x] **12. Jars of the Spark image cached in CI**: Maven Central answered every jar with one wrong body on 3 of 6 CI runs on 2026-11-23 (the checksums rejected it). The jars are now fetched by `make jars` with a mirror and retries, and CI caches them (decision 36).
 
+## Operational layer
+
+Designed on 2026-11-25. The SLAs are measured per minute, day and 90 days and a run lasts
+minutes, so the live capture and the history are separate. Items 13 to 16 and 18 make up v1.4.0
+(measurement); item 17 changes the transmitter and is left for v1.5.0 (limits).
+
+- [x] **13. Requirements**: response time, availability, limits and PCM reporting per endpoint of the pinned APIs, each number with its source and version, the disagreements between sources with the reading chosen, checked against the specs and the manual's worked examples ([operational.md](operational.md), decisions 39 and 40).
+- [ ] **14. Telemetry**: the validator (client) and the proxy (server) write one PCM-style report per exchange, joined by `x-fapi-interaction-id`; the PCM's OpenAPI file pinned by commit.
+- [ ] **15. 90-day history**: a seeded generator of reports of both sides, with defect episodes labelled per endpoint and day; small in CI, full in the campaign.
+- [ ] **16. Operational job**: PySpark computes the P95, availability, overload and reporting metrics of the requirements into Iceberg tables.
+- [ ] **17. Limits** (v1.5.0): the transmitter applies the traffic and monthly limits; k6 drives them; early 423 or 429, 429 on Consents and miscounted calls are detected.
+- [ ] **18. Report**: precision and recall of the operational layer, apart from the other layers.
+
 ## Later
 
-Each one is a release of its own, designed before it is built. Suggested order: the operational layer (it reuses the platform), FAPI-BR security (it changes the base), then Pix and several institutions.
+Each one is a release of its own, designed before it is built. Suggested order: FAPI-BR security (it changes the base), then Pix and several institutions.
 
 - FAPI-BR security: the OpenID Foundation conformance suite against a local authorization server (Keycloak); mTLS, PAR, JARM, DCR.
 - Rest of the consent state machine: multiple approvers (`DEPENDE_MULTIPLA_ALCADA`) and the permission-group rules (`COMBINACAO_PERMISSOES_INCORRETA`), with business customers (CNPJ) in the dataset.
-- Operational layer: latency and availability per endpoint, call limits (k6), PCM-style metrics (Manual de Monitoramento v3.0, IN BCB 706).
 - Payments (Pix), several simulated institutions, orchestration (Airflow), scale benchmark.
