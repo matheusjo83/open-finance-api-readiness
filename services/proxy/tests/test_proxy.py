@@ -153,13 +153,18 @@ def renewed_consents(direct, seed) -> list[str]:
 
 
 def test_broken_extension_history(make_proxy, direct, seed, specs):
-    """Both variants keep the response valid and break the chain newest -> previous."""
+    """Both variants keep the response valid and break the chain newest -> previous.
+
+    The created consents' ids are random, and the variant is drawn from the request, so each
+    history is read with four client tokens: 20 draws, not 5. With 5 the two variants were both
+    drawn only 15 times in 16 (main CI run 45728578506 failed on it)."""
     proxy = make_proxy(only("broken-extension-history"))
     client, _ = proxy
     variants = set()
-    for consent in renewed_consents(direct, seed):
+    reads = [(consent, token) for consent in renewed_consents(direct, seed) for token in ("c1", "c2", "c3", "c4")]
+    for consent, token in reads:
         url = f"{CONSENTS}/consents/{consent}/extensions"
-        response = client.get(url, "client")
+        response = client.get(url, token)
         record = labels(proxy)[-1]
         assert record["defect_class"] == "broken-extension-history"
         validate(specs, "GET", url, client.last_headers, response)
