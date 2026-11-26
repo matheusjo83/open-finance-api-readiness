@@ -10,7 +10,8 @@
 # through the proxy as a Job, joining its results with the labels and pairing the PCM reports of
 # both sides, then the business-rules job and the detection report over that run as
 # SparkApplications (the report gates the invariants), and generates a 90-day history of PCM
-# reports with operational defects (a SparkApplication).
+# reports with operational defects and computes the operational metrics over it, which must
+# match its labels (SparkApplications).
 name: CI
 
 on:
@@ -111,6 +112,9 @@ jobs:
 
       - name: History (SparkApplication, 90 days of PCM reports with labels)
         run: make history
+
+      - name: Operational metrics (SparkApplication, checked against the history's labels)
+        run: make operational-smoke
 
       # The run's labels, contract results, exchanges, PCM reports and detection report, and the jobs' logs.
       - name: Collect reports

@@ -59,7 +59,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history campaign focused-campaign reports \
+  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -266,6 +266,20 @@ HISTORY_MINUTES ?= 30
 HISTORY_PER_MINUTE ?= 3
 history:
 	$(call spark_app,history,jobs/history/sparkapp.yaml,-e 's|"SEED"|"$(HISTORY_SEED)"|' -e 's|"MINUTES"|"$(HISTORY_MINUTES)"|' -e 's|"PER_MINUTE"|"$(HISTORY_PER_MINUTE)"|')
+
+# The operational metrics of one run's PCM reports (RUN_ID, default the proxy's current run) into
+# lake.ofb.operational_* (docs/operational-job.md); OPERATIONAL_ARGS adds arguments.
+operational:
+	@run_id="$${RUN_ID:-$$($(PROXY_RUN_ID))}"; echo "run $$run_id"; \
+	$(MAKE) --no-print-directory _operational RUN_ID="$$run_id" OPERATIONAL_ARGS='$(OPERATIONAL_ARGS)'
+
+# The same over the history of `make history`, failing on any difference with its labels.
+operational-smoke:
+	$(MAKE) --no-print-directory _operational RUN_ID="history-s$(HISTORY_SEED)-90d-$(HISTORY_MINUTES)x$(HISTORY_PER_MINUTE)" \
+	  OPERATIONAL_ARGS='"--check", '
+
+_operational:
+	$(call spark_app,operational,jobs/operational/sparkapp.yaml,-e 's|"RUN_ID"|"$(RUN_ID)"|' -e 's|arguments: \[|arguments: [$(OPERATIONAL_ARGS)|')
 
 # A campaign: SEEDS runs (one per defect seed) with CUSTOMERS customers, validated, checked and
 # reported together as REPORT_NAME (scripts/campaign.sh). Restores the default settings at the end.

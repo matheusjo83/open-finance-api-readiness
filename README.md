@@ -27,6 +27,7 @@ for the tool choices.
 | Business rules job | PySpark 3.5.9 (`jobs/business`) | Domain rules over the validator's exchanges, Iceberg tables in `lake.ofb` |
 | Detection report | PySpark 3.5.9 (`jobs/report`) | Precision and recall per layer, class and rule against the labels |
 | History | PySpark 3.5.9 (`jobs/history`) | 90 days of PCM reports of both sides with operational defects, and their labels |
+| Operational job | PySpark 3.5.9 (`jobs/operational`) | The operational metrics per day and month, from the reports of both sides |
 
 ## Quickstart
 
@@ -170,6 +171,20 @@ make history   # 90 days, 30 minutes x 3 requests per endpoint and day (HISTORY_
 ```
 
 See [docs/history.md](docs/history.md) for the classes, the edges and how the labels are built.
+
+## Operational metrics
+
+`jobs/operational` (a SparkApplication) pairs a run's PCM reports as the PCM does and computes,
+per endpoint, API and institution, per day and per month: the P95 against the SLA, the daily and
+90-day availability, the share of 529 and the reporting goals. Over a history it reproduces
+every label.
+
+```bash
+make operational         # the proxy's current run, into lake.ofb.operational_*
+make operational-smoke   # the CI history, failing on any difference with its labels
+```
+
+See [docs/operational-job.md](docs/operational-job.md).
 
 ## Business rules job
 

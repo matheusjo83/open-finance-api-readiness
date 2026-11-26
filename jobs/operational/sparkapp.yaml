@@ -1,0 +1,49 @@
+# Operational job (jobs/operational): the metrics of the operational requirements over one run's
+# PCM reports of both sides, live or generated, into lake.ofb.operational_* (docs/operational-job.md).
+# make operational fills in the run (the proxy's current run unless RUN_ID is set); make
+# operational-smoke runs it over the CI history with --check.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: operational
+  namespace: spark
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  # Built locally and loaded into kind (make image).
+  image: ofar/spark:local
+  imagePullPolicy: Never
+  sparkVersion: 3.5.9
+  mainApplicationFile: local:///opt/jobs/operational/job.py
+  arguments: ["--run-id", "RUN_ID"]
+  deps:
+    pyFiles:
+      - local:///opt/jobs/lib/lakehouse.py
+      - local:///opt/jobs/operational/pcm_metrics.py
+  sparkConf:
+    spark.sql.shuffle.partitions: "4"
+    spark.sql.session.timeZone: UTC
+  restartPolicy:
+    type: Never
+  # As the other jobs: 1g of heap, 768m of overhead (decisions 35 and 37).
+  driver:
+    cores: 1
+    memory: 1g
+    memoryOverhead: 768m
+    serviceAccount: spark
+    envFrom:
+      - configMapRef:
+          name: lakehouse-config
+      - secretRef:
+          name: lakehouse-credentials
+  executor:
+    instances: 1
+    cores: 1
+    memory: 1g
+    memoryOverhead: 768m
+    envFrom:
+      - configMapRef:
+          name: lakehouse-config
+      - secretRef:
+          name: lakehouse-credentials
