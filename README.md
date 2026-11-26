@@ -73,6 +73,22 @@ boosted, measures each business rule on 38 to 464 cases: precision and condition
 at 100 % ([docs/focused-report.md](docs/focused-report.md)). Its mix is artificial, so it
 complements the reference figures above and does not replace them.
 
+The operational layer is measured on generated histories: five seeds of 90 days, 11 endpoints,
+464,198 exchanges ([docs/operational-report.md](docs/operational-report.md)). Every verdict
+flags only units with a cause the requirements allow and finds every unit built for it:
+
+| Verdict | Unit | Flagged | Positives | Precision | Recall |
+|---|---|---|---|---|---|
+| Response time (P95) | endpoint-day | 181 | 181 | 100 % [98–100] | 100 % [98–100] |
+| Availability | endpoint-day | 126 | 126 | 100 % [97–100] | 100 % [97–100] |
+| 90-day availability | endpoint | 24 | 16 | 100 % [86–100] | 100 % [81–100] |
+| Overload (529) | institution-day | 30 | 17 | 100 % [89–100] | 100 % [82–100] |
+| Reports by 08:00 / within 7 days | API-day | 47 / 53 | 47 / 53 | 100 % | 100 % |
+| Monthly verdicts | month | 240 | 198 | 100 % | 100 % |
+
+The 143 units built exactly at a threshold (P95 equal to the SLA, a minute or a day at 95 %, 529s
+at 0.5 %) all come out as the requirements say.
+
 ## Specifications
 
 | API | Version | Source |
@@ -181,10 +197,12 @@ every label.
 
 ```bash
 make operational         # the proxy's current run, into lake.ofb.operational_*
-make operational-smoke   # the CI history, failing on any difference with its labels
+make operational-smoke   # the CI history: labels checked, detection report gated
+make operational-campaign SEEDS=5 OPERATIONAL_REPORT=x   # a history per seed, one report over all
 ```
 
-See [docs/operational-job.md](docs/operational-job.md).
+See [docs/operational-job.md](docs/operational-job.md) for the metrics and
+[docs/operational-report.md](docs/operational-report.md) for the detection report.
 
 ## Business rules job
 

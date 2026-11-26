@@ -29,6 +29,7 @@ def load(name: str, path: Path):
 
 sys.path.insert(0, str(JOBS / "operational"))
 operational_job = load("operational_job", JOBS / "operational" / "job.py")
+detection = load("detection", JOBS / "operational" / "detection.py")
 
 
 def test_reproduces_every_label(spark, history, capsys):
@@ -177,3 +178,40 @@ def test_reporting_month_allows_three_late_days(spark):
     assert sorted(r["reporting_8h_ok"] for r in three["api_day"].collect()) == [False] * 3 + [True] * 7
     assert [r["reporting_month_ok"] for r in three["api_month"].collect()] == [True]
     assert [r["reporting_month_ok"] for r in month(4)["api_month"].collect()] == [False]
+
+
+def test_detection_report_holds_its_invariants(spark, history, capsys):
+    """Over the history every verdict flags only units with an allowed cause, finds every unit
+    with a target cause, and every edge comes out as the requirements say."""
+    source, run_id = history
+    assert operational_job.main(["--run-id", run_id, "--source", source, "--requirements", str(REQUIREMENTS),
+                                 "--no-tables", "--report", "test", "--gate"], spark=spark) == 0
+    out = capsys.readouterr().out
+    assert "All invariants hold" in out
+    summary = json.loads(out.split("OPERATIONAL_REPORT ", 1)[1])
+    assert summary["gate"] == "ok" and set(summary["verdicts"]) == set(detection.VERDICTS)
+    # Seed 1 exercises every verdict: a precision and a recall, both 1.
+    assert all(v == [1.0, 1.0] for v in summary["verdicts"].values()), summary["verdicts"]
+
+
+def test_detection_gate_notices_a_missed_or_wrong_flag(spark, history):
+    """The gate is not a formality: a verdict that misses a target, flags a unit without an
+    allowed cause or gets an edge wrong breaks it."""
+    source, run_id = history
+    req = json.loads(REQUIREMENTS.read_text())
+    tables = operational_job.build(spark, *operational_job.read_run(spark, source, run_id), req)
+    labels = {s: spark.read.json(f"{source}/pcm-labels/run={run_id}/{s}/") for s in ("endpoint-day", "api-day", "institution-day")}
+    rows = [r.asDict() for r in detection.units(tables, labels, run_id).collect()]
+    assert detection.gate(detection.summarize(rows)) == []
+
+    def broken(pick, change) -> list[str]:
+        changed = [dict(r) for r in rows]
+        target = next(r for r in changed if pick(r))
+        target.update(change(target))
+        return detection.gate(detection.summarize(changed))
+
+    assert any("recall" in p for p in broken(lambda r: r["verdict"] == "rt_day" and r["flagged"], lambda r: {"flagged": False}))
+    assert any("precision" in p for p in broken(lambda r: r["verdict"] == "overload_day" and not r["causes"],
+                                                lambda r: {"flagged": True}))
+    assert any("edge" in p for p in broken(lambda r: r["verdict"] == "rt_day" and "edge:p95-at-sla" in r["causes"],
+                                           lambda r: {"flagged": True}))

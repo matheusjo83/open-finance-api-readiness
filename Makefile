@@ -59,7 +59,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke campaign focused-campaign reports \
+  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -273,10 +273,17 @@ operational:
 	@run_id="$${RUN_ID:-$$($(PROXY_RUN_ID))}"; echo "run $$run_id"; \
 	$(MAKE) --no-print-directory _operational RUN_ID="$$run_id" OPERATIONAL_ARGS='$(OPERATIONAL_ARGS)'
 
-# The same over the history of `make history`, failing on any difference with its labels.
+# The same over the history of `make history`, failing on any difference with its labels, with its
+# detection report gated (docs/operational-report.md).
 operational-smoke:
 	$(MAKE) --no-print-directory _operational RUN_ID="history-s$(HISTORY_SEED)-90d-$(HISTORY_MINUTES)x$(HISTORY_PER_MINUTE)" \
-	  OPERATIONAL_ARGS='"--check", '
+	  OPERATIONAL_ARGS='"--check", "--report", "history-s$(HISTORY_SEED)", "--gate", '
+
+# An operational campaign: a history per seed 1..SEEDS at the CI volume, each checked, and one
+# detection report over all of them, gated, named OPERATIONAL_REPORT (scripts/operational-campaign.sh).
+OPERATIONAL_REPORT ?= operational-$$(date -u +%Y%m%d)
+operational-campaign:
+	scripts/operational-campaign.sh "$(SEEDS)" "$(OPERATIONAL_REPORT)"
 
 _operational:
 	$(call spark_app,operational,jobs/operational/sparkapp.yaml,-e 's|"RUN_ID"|"$(RUN_ID)"|' -e 's|arguments: \[|arguments: [$(OPERATIONAL_ARGS)|')

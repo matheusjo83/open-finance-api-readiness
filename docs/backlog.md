@@ -40,7 +40,7 @@ minutes, so the live capture and the history are separate. Items 13 to 16 and 18
 - [x] **15. 90-day history**: a seeded PySpark generator of 90 days of reports of both sides, in the live format, with six operational classes and four edges built in and labelled per endpoint, API and day; the reports recount to the labels ([history.md](history.md), decision 42).
 - [x] **16. Operational job**: PySpark pairs the reports as the PCM does and computes the P95, the daily and 90-day availability, the share of 529 and the reporting goals per day and per month into `lake.ofb.operational_*`; over a history it reproduces every label, which CI checks (`make operational-smoke`) ([operational-job.md](operational-job.md), decision 43).
 - [ ] **17. Limits** (v1.5.0): the transmitter applies the traffic and monthly limits; k6 drives them; early 423 or 429, 429 on Consents and miscounted calls are detected.
-- [ ] **18. Report**: precision and recall of the operational layer, apart from the other layers.
+- [x] **18. Report**: precision and recall of each operational verdict against the history's causes, per its own unit, with the edges, apart from the other layers; gated in CI and over a five-seed reference campaign ([operational-report.md](operational-report.md), decision 44).
 
 ## Later
 
