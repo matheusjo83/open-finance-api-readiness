@@ -39,7 +39,7 @@ key against the rates, as the proxy's (decision 17).
 | `slow-day` | endpoint-day | `mild`, `severe` | The time at the P95 rank above the SLA: up to 1.2 times, or more | Day out of the SLA; `severe` fails the month on its own |
 | `outage` | endpoint-day | `daily` | Every request of a few minutes fails (5XX, 408) | Day below 95 % |
 | `outage-chronic` | endpoint | | 15 days with one or more failed minutes each, every day at 95 % or more | 90-day mean below 99.5 % |
-| `overload` | institution-day | `over-0.5`, `over-5` | 529s: above 0.5 % and at most 5 % of the valid requests, or above 5 % | Day over the limit; `over-5` fails the month on its own |
+| `overload` | institution-day | `over-0.5`, `over-5` | 529s: above 0.5 % and at most 5 % of the valid requests, or above 5 %, in one burst minute per endpoint | Day over the limit; `over-5` fails the month on its own |
 | `unpaired` | API-day | `late-*`, `missing-some-*`, `missing-many-*` (`client` or `server`) | One side reports after 08:00 of the next day (>5 %), or never (1 to 5 %, or >5 %) | `late`: fails at 08:00 only; `missing-some`: at 7 days only; `missing-many`: both |
 | `inconsistent-pair` | API-day | `status`, `endpoint` | The server reports another status or endpoint (>1 %) | Fails at 7 days |
 
@@ -71,7 +71,9 @@ operational job (item 16) must find it too.
 What the labels do not decide:
 
 - A 529 is a 5XX, so it is an error in availability (`overload-in-availability`): an overload
-  day may also fail the day's availability, and the label says so.
+  day may also fail the day's availability, and the label says so. The 529s of a unit come in one
+  minute, as a burst over the TPS limit would: spread one per minute, they took every endpoint's
+  90 days down with one overload day ([operational-report.md](operational-report.md)).
 - The monthly verdicts follow from the daily ones; item 16 computes them for both.
 
 ## Volume

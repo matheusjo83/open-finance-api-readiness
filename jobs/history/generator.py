@@ -227,10 +227,14 @@ def build_calls(s: Settings, ep: Endpoint, day: date, scope, cls, variant, chron
             low, high = (0.005, 0.05) if variant == "over-0.5" else (0.05, 0.12)
             least = math.floor(low * valid / (1 - low)) + 1
             n529, fill = rng.randint(least, max(least, math.floor(high * valid / (1 - high)))), 0
+        # An overload is a burst over the TPS limit: the 529s (and the edge's fillers) in one
+        # minute. Spread one per minute, each would take its minute's availability with it, and
+        # one day would sink every endpoint's 90 days.
+        burst = rng.choice(chosen)
         for _ in range(fill):
-            calls.append(Call(rng.choice(chosen), ep.success))
+            calls.append(Call(burst, ep.success))
         for _ in range(n529):
-            calls.append(Call(rng.choice(chosen), 529))
+            calls.append(Call(burst, 529))
 
     if cls == "unpaired":
         kind, side = variant.rsplit("-", 1)

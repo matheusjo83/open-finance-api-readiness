@@ -21,6 +21,7 @@ spec:
     pyFiles:
       - local:///opt/jobs/lib/lakehouse.py
       - local:///opt/jobs/operational/pcm_metrics.py
+      - local:///opt/jobs/operational/detection.py
   sparkConf:
     spark.sql.shuffle.partitions: "4"
     spark.sql.session.timeZone: UTC
