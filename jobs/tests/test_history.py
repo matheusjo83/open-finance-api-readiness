@@ -136,15 +136,10 @@ def test_reports_have_the_live_format():
                                        "fapiInteractionId", "timestamp", "processTimespan", "additionalInfo"}
 
 
-def test_job_writes_reports_and_labels(spark, tmp_path):
-    from job import main  # noqa: E402
-
-    # The executors' Python gets the module as in the cluster (deps.pyFiles).
-    spark.sparkContext.addPyFile(str(JOBS / "history" / "generator.py"))
-    assert main(["--seed", "2", "--minutes", "20", "--per-minute", "1", "--source", f"file://{tmp_path}",
-                 "--requirements", str(JOBS.parent / "specs/operational/requirements.json"), "--partitions", "4"],
-                spark=spark) == 0
-    run = "run=history-s2-90d-20x1"
+def test_job_writes_reports_and_labels(spark, history):
+    source, run_id = history
+    tmp_path = source[len("file://"):]
+    run = f"run={run_id}"
     client = spark.read.json(f"{tmp_path}/pcm/client/{run}/")
     server = spark.read.json(f"{tmp_path}/pcm/server/{run}/")
     labels = {scope: [r.asDict() for r in spark.read.json(f"{tmp_path}/pcm-labels/{run}/{scope}/").collect()]
@@ -168,7 +163,7 @@ def test_job_writes_reports_and_labels(spark, tmp_path):
         assert r["reporting_8h_ok"] == (r["class"] != "unpaired" or variant.startswith("missing-some"))
         assert r["reporting_7d_ok"] == (r["class"] is None or variant.startswith("late"))
     chronic = {f"{r['method']} {r['endpoint']}" for r in labels["endpoint"] if r["chronic"]}
-    assert chronic == {ep.key for ep in EPS if chronic_days(Settings(seed=2), ep)}
+    assert chronic == {ep.key for ep in EPS if chronic_days(Settings(seed=1), ep)}
     assert all(not r["long_ok"] for r in labels["endpoint"] if r["chronic"])
 
 

@@ -302,10 +302,16 @@ def unit(s: Settings, ep: Endpoint, day: date, chronic: bool, others: list[Endpo
     ledger = {"calls": len(calls), "unpaired_8h": 0, "unpaired_7d": 0, "inconsistent": 0, "valid": 0, "n529": 0}
     same_api = [o for o in others if o.api == ep.api and o.key != ep.key]
     for call in calls:
-        started = midnight + timedelta(minutes=call.minute, milliseconds=rng.randrange(60000))
+        # Up to 59.99 s into the minute: the server's report, 2 ms later, stays in the same minute.
+        started = midnight + timedelta(minutes=call.minute, milliseconds=rng.randrange(59990))
         interaction = str(uuid.UUID(int=rng.getrandbits(128), version=4))
         delta = 0 if call.zero_time else min(call.ms - 1, rng.randint(0, 5))
-        sent = started + timedelta(seconds=rng.randint(5, 1800))
+        # Most reports go within half an hour; 5 % in the last hour before the cut of 08:00 of the
+        # next day, still in time.
+        if rng.random() < 0.05:
+            sent = next_8h - timedelta(seconds=rng.randint(1, 3600))
+        else:
+            sent = started + timedelta(seconds=rng.randint(5, 1800))
 
         def late(side: str) -> datetime:
             # From a minute after the cut to five days later (within the 7 days).

@@ -25,7 +25,9 @@ Output, under `run=history-s<seed>-90d-<minutes>x<per minute>`:
 The unit is an endpoint on a day (Brasília time). It is generated from the seed, the endpoint
 and the day alone, so Spark spreads the units over its executors and a day comes out the same
 whatever else is generated. The traffic: `minutes` minutes of the day, `per minute` requests
-each. Noise, away from the edges and never on a minute's first call: 2 % of 404 (not a valid
+each, started up to 59.99 seconds into the minute (the server's report, 2 ms later, stays in the
+same minute and day). Reports go within half an hour, 5 % of them in the last hour before 08:00
+of the next day. Noise, away from the edges and never on a minute's first call: 2 % of 404 (not a valid
 request), 2 % of 422 (a success) and 1 % of reports with time 0 (left out of the response time).
 
 A unit gets at most one episode, from the widest scope that has one: the day of the institution,

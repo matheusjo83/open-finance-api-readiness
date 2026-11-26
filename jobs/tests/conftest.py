@@ -57,3 +57,23 @@ def runs(spark):
         return cache[name]
 
     return get
+
+
+@pytest.fixture(scope="session")
+def history(spark, tmp_path_factory):
+    """A small history (seed 1, 20 minutes x 1 request), generated once for the session by the
+    history job: (source, run id). Seed 1 has a month failed by every verdict."""
+    import importlib.util
+
+    source = tmp_path_factory.mktemp("history")
+    # The executors' Python gets the module as in the cluster.
+    spark.sparkContext.addPyFile(str(JOBS / "history" / "generator.py"))
+    # By path: job.py exists in several jobs.
+    spec = importlib.util.spec_from_file_location("history_job_main", JOBS / "history" / "job.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.main(["--seed", "1", "--minutes", "20", "--per-minute", "1", "--source", f"file://{source}",
+                        "--requirements", str(JOBS.parent / "specs/operational/requirements.json"),
+                        "--partitions", "4"], spark=spark) == 0
+    return f"file://{source}", "history-s1-90d-20x1"
+
