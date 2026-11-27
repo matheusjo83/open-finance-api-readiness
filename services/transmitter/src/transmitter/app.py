@@ -23,6 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import dataset as ds
 from .consents import MAX_VALIDITY, Consent, ConsentStore, Extension, seed_consents
+from .limits import Limits, configured, follow_up_page, operation
 
 CONSENTS = "/open-banking/consents/v3"
 ACCOUNTS = "/open-banking/accounts/v2"
@@ -51,6 +52,9 @@ PERMISSIONS = {
 }
 ACCOUNT_TYPES = {"CONTA_DEPOSITO_A_VISTA", "CONTA_POUPANCA", "CONTA_PAGAMENTO_PRE_PAGA"}
 MIN_PAGE_SIZE, MAX_PAGE_SIZE = 25, 1000
+# Stand-in for the organisationId of the caller's certificate (the origin of the limits).
+ORIGIN_HEADER = "x-mock-client-org-id"
+DEFAULT_RECEIVER = str(uuid.uuid5(uuid.NAMESPACE_DNS, "receiver.ofb.svc"))
 
 
 class ApiError(Exception):
@@ -81,7 +85,9 @@ def api_of(path: str) -> str | None:
 
 
 def create_app(seed: int = 42, customers: int = 5,
-               clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> FastAPI:
+               clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+               limits: str | None = None) -> FastAPI:
+    """`limits`: TRANSMITTER_LIMITS, JSON raising some limits above the minimums (limits.py)."""
     started = clock()
     data = ds.build(seed, started.date(), customers)
     store = ConsentStore()
@@ -89,7 +95,8 @@ def create_app(seed: int = 42, customers: int = 5,
         store.add(consent)
 
     app = FastAPI(title="Synthetic Open Finance transmitter", docs_url=None, redoc_url=None, openapi_url=None)
-    app.state.dataset, app.state.store = data, store
+    counters = Limits(configured(limits))
+    app.state.dataset, app.state.store, app.state.limits = data, store, counters
 
     # --- plumbing -------------------------------------------------------------------------
 
@@ -131,6 +138,33 @@ def create_app(seed: int = 42, customers: int = 5,
         titles = {404: ("NAO_ENCONTRADO", "Recurso não encontrado"), 405: ("METODO_NAO_PERMITIDO", "Método não permitido")}
         code, title = titles.get(exc.status_code, ("ERRO_NAO_MAPEADO", "Erro"))
         return error(request, exc.status_code, code, title, str(exc.detail))
+
+    @app.middleware("http")
+    async def apply_limits(request: Request, call_next):
+        """Traffic limit first (429), then the monthly one (423); see limits.py."""
+        endpoint = operation(request.method, request.url.path)
+        if endpoint is None:
+            return await call_next(request)
+        value = request.headers.get("x-fapi-interaction-id", "")
+        request.state.interaction_id = value if UUID_RE.match(value) else str(uuid.uuid4())
+        origin = request.headers.get(ORIGIN_HEADER) or DEFAULT_RECEIVER
+        now = clock()
+        if not counters.admit_traffic(endpoint, origin, now):
+            return error(request, 429, "LIMITE_TRAFEGO_EXCEDIDO", "Limite de tráfego excedido",
+                         "O limite de requisições por minuto deste endpoint para a instituição foi atingido.")
+        key = None
+        if counters.limits[endpoint][1] is not None and not follow_up_page(dict(request.query_params)):
+            auth = request.headers.get("authorization", "")
+            consent = store.get(auth[7:].strip(), now) if auth.lower().startswith("bearer ") else None
+            if consent is not None and consent.status == "AUTHORISED":
+                key = counters.monthly_key(endpoint, request.url.path, consent.consent_id, consent.cpf, origin, now)
+            if key is not None and counters.monthly_exhausted(key):
+                return error(request, 423, "LIMITE_OPERACIONAL_EXCEDIDO", "Limite operacional excedido",
+                             "O limite mensal de chamadas deste endpoint para o recurso foi atingido.")
+        response = await call_next(request)
+        if key is not None and 200 <= response.status_code < 300:
+            counters.count_monthly(key)
+        return response
 
     def require_bearer(request: Request) -> str:
         value = request.headers.get("authorization", "")

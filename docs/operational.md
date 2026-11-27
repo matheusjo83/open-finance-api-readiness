@@ -46,8 +46,10 @@ the active consents between the two institutions. The portal's table also has
   must reach 99.5 % on the month's last day.
 - **Overload**: 529 below 0.5 % of the valid requests on at least 90 % of the days, and at most
   5 % on the others. The infrastructure must take 300 TPS.
-- **Limits**: 429 above the traffic limit, 423 above the monthly one. Only 2XX count for the
-  monthly limit, and the extra requests of a pagination do not.
+- **Limits**: 429 above the traffic limit, per endpoint and origin (the caller's
+  `organizationId`), 423 above the monthly one, per month, endpoint, most granular object
+  (consent or account), customer and receiver. Only 2XX count for the monthly limit, and the
+  extra requests of a pagination do not. Consents have neither.
 - **Timeout**: 15 seconds. The server answers 504; a client that gives up reports 408.
 - **PCM reporting**: 95 % of a day's reports by 08:00 of the next day and 99 % within 7 days. Up to
   three days a month may miss the first goal if they meet the second.
@@ -70,6 +72,8 @@ Each case is in the file with the reading chosen.
 | `overload-in-availability` | 529 is 5XX, so literally an error in availability, but out of the response time | Literal |
 | `response-time-day` | The time zone of the day is stated for availability only | Brasília for both |
 | `pcm-spec-domains` | The PCM's OpenAPI file and the portal give other values for four `additionalInfo` fields | The portal ([telemetry.md](telemetry.md)) |
+| `tpm-window` | Transactions per minute: the calendar minute or any 60 seconds is not said | A 429 is early with fewer than the TPM in the 60 seconds before it: both kinds of minute pass |
+| `pagination-requests` | Which requests of a pagination are the extra ones is not said | Page 2 onward, neither counted nor refused |
 | `process-timespan-integer` | Whole milliseconds by definition, `120.000001` as example | Whole, rounded up |
 
 The manual cuts its percentages after two decimals: 255/259 is 98.4556 %, published as 98.45 %.
