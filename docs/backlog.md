@@ -42,9 +42,20 @@ minutes, so the live capture and the history are separate. Items 13 to 16 and 18
 - [ ] **17. Limits** (v1.5.0): the transmitter applies the traffic and monthly limits; k6 drives them; early 423 or 429, 429 on Consents and miscounted calls are detected.
 - [x] **18. Report**: precision and recall of each operational verdict against the history's causes, per its own unit, with the edges, apart from the other layers; gated in CI and over a five-seed reference campaign ([operational-report.md](operational-report.md), decision 44).
 
+Items 13 to 16 and 18 were released together as [v1.4.0](https://github.com/matheusjo83/open-finance-api-readiness/releases/tag/v1.4.0), with the operational reference campaign of 2026-11-26. Item 17 is next, as v1.5.0.
+
+### Found along the way
+
+Small items, to take with the next release that touches them:
+
+- **Consent ids at random**: the transmitter creates consents with `uuid4`, so the defects drawn for created consents differ from run to run (a proxy test failed 1 run in 16 on it, fixed in PR #22). Seeded ids would make whole runs reproducible, but they change every draw of the campaigns, so it is a decision of its own.
+- **`make proxy-smoke` right after a rollout** sometimes times out connecting (the old pod still behind the Service), with the image of main too. CI deploys once, so it does not fail there; a retry in the script would fix it.
+- **Timeouts**: a call the client gives up on after 15 seconds should be reported with 408, and the proxy's upstream timeout (10 seconds) answers 500, not the manual's 504. No defect delays responses yet; item 17 or a latency class would need both.
+- **Every minute of the day**: the history at full volume (about 57 million reports) is the scale benchmark below.
+
 ## Later
 
-Each one is a release of its own, designed before it is built. Suggested order: FAPI-BR security (it changes the base), then Pix and several institutions.
+Each one is a release of its own, designed before it is built. Suggested order after item 17: FAPI-BR security (it changes the base), the rest of the consent state machine, then Pix and several institutions.
 
 - FAPI-BR security: the OpenID Foundation conformance suite against a local authorization server (Keycloak); mTLS, PAR, JARM, DCR.
 - Rest of the consent state machine: multiple approvers (`DEPENDE_MULTIPLA_ALCADA`) and the permission-group rules (`COMBINACAO_PERMISSOES_INCORRETA`), with business customers (CNPJ) in the dataset.
