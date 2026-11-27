@@ -1,6 +1,7 @@
 # storage: SeaweedFS (S3) and the Iceberg catalog database.
 # spark: the Spark jobs (the operator itself runs in spark-operator).
 # ofb: the Open Finance mock transmitter and the defect proxy (backlog item 2).
+# security: the authorisation server (Keycloak) and the OpenID conformance suite (item 19).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -15,3 +16,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: ofb
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security

@@ -1,0 +1,43 @@
+# One run of the OpenID conformance suite's Brazil plan against Keycloak (make conformance):
+# the suite's own scripts/run-test-plan.py, headless, with the browser automation of the plan
+# configuration (Secret conformance-plan, made by make security-deploy). The plan's name and
+# variant are in services/security/src/security_tools/suite.py; make conformance fills them in.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: conformance-run
+  namespace: security
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: runner
+          image: ofar/security-tools:local
+          imagePullPolicy: Never
+          args: ["python", "-m", "security_tools", "run", "PLAN_NAME", "/plan/plan.json", "/tmp/export"]
+          env:
+            - { name: CONFORMANCE_SERVER, value: "https://conformance.security.svc/" }
+            # Dev mode: the local server needs no token, and its self-signed front is not verified.
+            - { name: CONFORMANCE_DEV_MODE, value: "1" }
+            # Run every module: the runner otherwise stops after 3 that do not complete in a row.
+            # What passes is judged from the results, not from the runner's exit code.
+            - { name: CONFORMANCE_MAX_CONSECUTIVE_FAILURES, value: "1000" }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: plan, mountPath: /plan, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: plan
+          secret: { secretName: conformance-plan }
+        - name: tmp
+          emptyDir: {}

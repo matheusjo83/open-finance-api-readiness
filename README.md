@@ -221,6 +221,23 @@ make limits-campaign SEEDS=5 LIMITS_REPORT=x   # a run per seed, one report over
 See [docs/limits.md](docs/limits.md) for the load and [docs/limits-job.md](docs/limits-job.md)
 for the verdicts and the detection report.
 
+## Security (FAPI-BR)
+
+In progress (backlog item 19, stage 1 of 4). The transmitter's authorisation server is Keycloak
+26.8.2 with a realm set for FAPI-BR v2.2.0 (FAPI 1 Advanced: private_key_jwt, PAR, PKCE, PS256,
+encrypted id_token, certificate-bound tokens, `consent:<id>`), behind a PKI of our own; the
+OpenID Foundation's conformance suite (release-v5.3.5) runs its Brazil plan against it headless,
+in the `security` namespace. The clean baseline: 54 of 67 modules passed, 8 known outcomes (5 of
+Keycloak itself), 4 for review with evidence, none unexpected, in about 2.6 minutes.
+
+```bash
+make security-test                 # the PKI, the realm and the plan configuration
+make security-deploy conformance   # Keycloak and the suite, then the plan, gated
+```
+
+See [docs/security.md](docs/security.md) for the realm against FAPI-BR v2.2.0, the run and the
+known outcomes.
+
 ## Business rules job
 
 `jobs/business` is a PySpark job (SparkApplication) over one validation run. It reads the

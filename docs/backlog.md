@@ -53,10 +53,20 @@ Small items, to take with the next release that touches them:
 - **Timeouts**: a call the client gives up on after 15 seconds should be reported with 408, and the proxy's upstream timeout (10 seconds) answers 500, not the manual's 504. No defect delays responses yet; item 17 or a latency class would need both.
 - **Every minute of the day**: the history at full volume (about 57 million reports) is the scale benchmark below.
 
+## Security layer
+
+Designed on 2026-11-27 (decision 48), for v2.0.0: it changes the base (real OAuth flows and mTLS
+in the walk).
+
+- [ ] **19. FAPI-BR** ([security.md](security.md)): the transmitter's authorisation server and its detection.
+  - [x] Stage 1: a PKI of our own, Keycloak 26.8.2 with a realm set for FAPI-BR v2.2.0, the OpenID conformance suite's Brazil plan headless against it with a stand-in resource server, gated on the known outcomes in CI. Clean baseline: 54 of 67 modules passed, 8 known (5 of Keycloak itself), 4 for review with evidence, none unexpected, in 158 s.
+  - [ ] Stage 2: the transmitter as resource server behind an mTLS gateway (token signature, `cnf.x5t#S256`, `consent:<id>` against the path, status, revocation), the organisation id from the certificate instead of `x-mock-client-org-id`, the walk with real flows, the proxy's draw keyed on the consent instead of the bearer.
+  - [ ] Stage 3: defect variants of the realm (PAR or PKCE optional, RS256, long tokens, refresh rotation, unencrypted id_token, reusable request_uri) and of the resource server (unbound, another consent's or expired tokens accepted), labelled.
+  - [ ] Stage 4: the detection report per variant against the baseline, gated, and a campaign.
+
 ## Later
 
-Each one is a release of its own, designed before it is built. Suggested order after item 17: FAPI-BR security (it changes the base), the rest of the consent state machine, then Pix and several institutions.
+Each one is a release of its own, designed before it is built. Suggested order after item 19: the rest of the consent state machine, then Pix and several institutions.
 
-- FAPI-BR security: the OpenID Foundation conformance suite against a local authorization server (Keycloak); mTLS, PAR, JARM, DCR.
 - Rest of the consent state machine: multiple approvers (`DEPENDE_MULTIPLA_ALCADA`) and the permission-group rules (`COMBINACAO_PERMISSOES_INCORRETA`), with business customers (CNPJ) in the dataset.
 - Payments (Pix), several simulated institutions, orchestration (Airflow), scale benchmark.
