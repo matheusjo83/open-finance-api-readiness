@@ -515,8 +515,11 @@ def create_app(seed: int = 42, customers: int = 5,
             } for c in data.customers],
         }
 
+    instance = str(uuid.uuid4())
+
     @app.get("/healthz")
     def healthz():
-        return {"status": "ok"}
+        # The instance tells a fresh pod from the one it replaced (scripts/limits-run.sh).
+        return {"status": "ok", "instance": instance}
 
     return app

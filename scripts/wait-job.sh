@@ -16,6 +16,6 @@ while ((SECONDS < deadline)); do
   sleep 2
 done
 
-kubectl -n "$ns" logs "job/$name" --tail=200 || true
+kubectl -n "$ns" logs "job/$name" --all-containers --tail=200 || true
 echo "Job $ns/$name: ${state:-no condition after ${timeout}s}"
 [[ " $state " == *" Complete "* ]]
