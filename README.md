@@ -204,6 +204,23 @@ make operational-campaign SEEDS=5 OPERATIONAL_REPORT=x   # a history per seed, o
 See [docs/operational-job.md](docs/operational-job.md) for the metrics and
 [docs/operational-report.md](docs/operational-report.md) for the detection report.
 
+## Limits
+
+The transmitter applies the traffic (TPM) and monthly limits at the minimums; a second proxy
+(`proxy-limits`) refuses too early or where no limit applies, drawn per test case; k6 drives 34
+test cases through it (about 18,600 requests in a minute). `jobs/limits` (a SparkApplication)
+judges each 429 and 423 from the client's log alone: early against the requests of the 60
+seconds before it, early against the counted calls of the Brasília month, or on Consents.
+
+```bash
+make limits limits-smoke   # one run (LIMITS_SEED, default 42) and its checks
+make limits-report         # the job over it, the detection report gated
+make limits-campaign SEEDS=5 LIMITS_REPORT=x   # a run per seed, one report over all
+```
+
+See [docs/limits.md](docs/limits.md) for the load and [docs/limits-job.md](docs/limits-job.md)
+for the verdicts and the detection report.
+
 ## Business rules job
 
 `jobs/business` is a PySpark job (SparkApplication) over one validation run. It reads the

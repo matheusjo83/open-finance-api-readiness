@@ -59,7 +59,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke campaign focused-campaign reports \
+  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke limits-job limits-report limits-campaign campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -302,6 +302,29 @@ limits: validator-image
 limits-smoke:
 	kubectl -n ofb exec -i deploy/proxy-limits -- python - < scripts/limits_smoke.py
 
+# The limits job over one limits run (RUN_ID, default the limits proxy's current run): each
+# refusal judged from the client's log into lake.ofb.limits_* (docs/limits-job.md); LIMITS_ARGS
+# adds arguments.
+LIMITS_RUN_ID = kubectl -n ofb exec deploy/proxy-limits -- python -c \
+  "import json, urllib.request; print(json.load(urllib.request.urlopen('http://localhost:8080/_proxy/run'))['run_id'])"
+limits-job:
+	@run_id="$${RUN_ID:-$$($(LIMITS_RUN_ID))}"; echo "run $$run_id"; \
+	$(MAKE) --no-print-directory _limits RUN_ID="$$run_id" LIMITS_ARGS='$(LIMITS_ARGS)'
+
+# The same, with the run's detection report gated, named after the run.
+limits-report:
+	@run_id="$${RUN_ID:-$$($(LIMITS_RUN_ID))}"; echo "run $$run_id"; \
+	$(MAKE) --no-print-directory _limits RUN_ID="$$run_id" LIMITS_ARGS='"--report", "'"$$run_id"'", "--gate", '
+
+# A limits campaign: a limits run per seed 1..SEEDS, each checked and judged, and one detection
+# report over all of them, gated, named LIMITS_REPORT (scripts/limits-campaign.sh).
+LIMITS_REPORT ?= limits-$$(date -u +%Y%m%d)
+limits-campaign:
+	scripts/limits-campaign.sh "$(SEEDS)" "$(LIMITS_REPORT)"
+
+_limits:
+	$(call spark_app,limits,jobs/limits/sparkapp.yaml,-e 's|"RUN_ID"|"$(RUN_ID)"|' -e 's|arguments: \[|arguments: [$(LIMITS_ARGS)|')
+
 # A campaign: SEEDS runs (one per defect seed) with CUSTOMERS customers, validated, checked and
 # reported together as REPORT_NAME (scripts/campaign.sh). Restores the default settings at the end.
 SEEDS ?= 3
@@ -333,6 +356,7 @@ reports:
 	-kubectl -n ofb logs job/limits-k6 --all-containers > reports/logs/limits-k6.log
 	-kubectl -n spark logs business-rules-driver > reports/logs/business-rules.log
 	-kubectl -n spark logs detection-report-driver > reports/logs/detection-report.log
+	-kubectl -n spark logs limits-driver > reports/logs/limits.log
 	find reports -type f | LC_ALL=C sort
 
 diagnose:
