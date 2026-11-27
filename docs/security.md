@@ -131,9 +131,11 @@ browser overrides that left the suite waiting for a visit; those modules use `ma
 
 ### In CI
 
-`make security-deploy conformance` runs the whole plan after the limits job (about 2.6 minutes of
-suite time plus the images and Keycloak's start), gated as above; its log is in `reports.zip`
-(`logs/conformance.log`). `make security-test` runs in the checks job.
+`make security-deploy conformance` runs the whole plan in a job of its own (`security`), in its
+own kind cluster and in parallel with the platform job, since it needs none of the lakehouse
+(about 2.6 minutes of suite time plus the images and Keycloak's start), gated as above; its log
+is in the `security-reports` artifact (`logs/conformance.log`). `make security-test` runs in the
+checks job.
 
 ## Findings
 
