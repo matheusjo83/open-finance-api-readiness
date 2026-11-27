@@ -177,7 +177,8 @@ def test_same_seed_same_dataset(specs, clock):
 
     assert snapshot(7) == snapshot(7)
     assert snapshot(7) != snapshot(8)
-    assert TestClient(create_app(seed=7, clock=clock)).get("/healthz").json() == {"status": "ok"}
+    health = [TestClient(create_app(seed=7, clock=clock)).get("/healthz").json() for _ in range(2)]
+    assert [h["status"] for h in health] == ["ok", "ok"] and health[0]["instance"] != health[1]["instance"]
 
 
 def test_harness_rejects_out_of_spec_responses(api, seed, monkeypatch):

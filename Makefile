@@ -59,7 +59,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign campaign focused-campaign reports \
+  validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke campaign focused-campaign reports \
   up smoke diagnose down
 
 tools: $(BIN)/kind $(BIN)/helm $(BIN)/kubectl
@@ -291,6 +291,17 @@ operational-campaign:
 _operational:
 	$(call spark_app,operational,jobs/operational/sparkapp.yaml,-e 's|"RUN_ID"|"$(RUN_ID)"|' -e 's|arguments: \[|arguments: [$(OPERATIONAL_ARGS)|')
 
+# One run of the limits layer (scripts/limits-run.sh): the limits proxy with LIMITS_SEED, a fresh
+# transmitter, the k6 Job through the proxy and the upload of its client log.
+LIMITS_SEED ?= 42
+limits: validator-image
+	scripts/limits-run.sh "$(LIMITS_SEED)"
+
+# Checks the last limits run: a label per request, the bursts in one minute, the clean cases at
+# the minimums exactly (scripts/limits_smoke.py).
+limits-smoke:
+	kubectl -n ofb exec -i deploy/proxy-limits -- python - < scripts/limits_smoke.py
+
 # A campaign: SEEDS runs (one per defect seed) with CUSTOMERS customers, validated, checked and
 # reported together as REPORT_NAME (scripts/campaign.sh). Restores the default settings at the end.
 SEEDS ?= 3
@@ -319,6 +330,7 @@ reports:
 	rm -rf reports && mkdir -p reports/logs
 	kubectl -n ofb exec -i deploy/proxy -- python - < scripts/collect_reports.py | tar -xzf - -C reports
 	-kubectl -n ofb logs job/contract-validator > reports/logs/contract-validator.log
+	-kubectl -n ofb logs job/limits-k6 --all-containers > reports/logs/limits-k6.log
 	-kubectl -n spark logs business-rules-driver > reports/logs/business-rules.log
 	-kubectl -n spark logs detection-report-driver > reports/logs/detection-report.log
 	find reports -type f | LC_ALL=C sort

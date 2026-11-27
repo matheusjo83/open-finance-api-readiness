@@ -45,7 +45,7 @@ to 0.95.
 ## Limit classes
 
 The operational layer's live defects, off in the walk's proxy and on in a proxy of their own,
-`proxy-limits` (`http://proxy-limits.ofb.svc`, every other class at 0), which the load tool calls
+`proxy-limits` (`http://proxy-limits.ofb.svc`, every other class at 0), which the load tool calls ([limits.md](limits.md))
 (`services/proxy/src/defect_proxy/limits.py`). A transmitter may apply the
 [limits](transmitter.md#limits) or not, never below the minimums: these classes refuse too early,
 or where no limit applies.

@@ -36,7 +36,7 @@ These are outside the specifications and replace parts that belong to later laye
 | Consents endpoints accept any bearer token | A `client_credentials` token from DCR | Same. |
 | `POST /mock/consents/{consentId}/authorise` | The customer authenticates and approves at the transmitter | No authorisation server yet. |
 | `GET /mock/seed` | — | Lists the seeded customers, consents and accounts so validators know what to call. |
-| `GET /healthz` | — | Readiness probe. |
+| `GET /healthz` | — | Readiness probe, with an id of the instance (a fresh pod tells itself apart). |
 | `x-mock-client-org-id` request header | The `organizationId` of the caller's certificate | The origin and receiver of the [limits](#limits); without it, the fixed receiver id the telemetry uses. |
 
 A consent covers every account of its customer (no account selection at authorisation).
