@@ -1,0 +1,234 @@
+# Security layer (FAPI-BR, backlog item 19): the transmitter's authorisation server (Keycloak),
+# the OpenID conformance suite that tests it, and, in stage 1, a stand-in resource server.
+# Certificates, the realm and the suite's plan configuration come from Secrets made by
+# make security-deploy (services/security; nothing secret is committed).
+# The images are multi-platform indexes, pulled by digest from their registries: kind cannot
+# load those from the local image store (decision 46). The namespace is in namespaces.yaml.
+# Keycloak 26.8.2 with the realm of services/security (realm ofb), HTTPS only, the client
+# certificate requested (mTLS for certificate-bound tokens), H2 in the pod: the realm is imported
+# at every start, so a restart is a fresh authorisation server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: security
+  labels: { app: keycloak }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+      annotations:
+        # make security-deploy writes a hash of the realm and certificates here.
+        ofar/config-id: unset
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
+          args:
+            - start
+            - --import-realm
+            - --db=dev-file
+            # consent:<id> (called dynamic-scopes before 26.7).
+            - --features=parameterized-scopes
+            - --hostname=https://keycloak.security.svc
+            - --http-enabled=false
+            - --https-port=8443
+            - --https-certificate-file=/tls/tls.crt
+            - --https-certificate-key-file=/tls/tls.key
+            - --https-client-auth=request
+            # FAPI-BR v2.2.0 6.4 and BCP 195 (the suite rejects any other): TLS 1.2 with the two
+            # ECDHE-RSA GCM suites, and TLS 1.3. As Keycloak's OAuth SIG sets them.
+            - --https-protocols=TLSv1.3,TLSv1.2
+            - --https-cipher-suites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+            - --truststore-paths=/tls/ca.pem
+            - --health-enabled=true
+          env:
+            - { name: JAVA_OPTS_KC_HEAP, value: "-XX:MaxRAMPercentage=60" }
+          ports:
+            - { name: https, containerPort: 8443 }
+            - { name: management, containerPort: 9000 }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management, scheme: HTTPS }
+            periodSeconds: 3
+            failureThreshold: 100
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: keycloak-tls }
+        - name: realm
+          secret: { secretName: keycloak-realm }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: security
+spec:
+  selector: { app: keycloak }
+  ports:
+    - { name: https, port: 443, targetPort: https }
+---
+# The OpenID conformance suite (release-v5.3.5, MIT): its server in dev mode (no login), behind
+# an nginx TLS front as in its docker-compose.yml, and its MongoDB.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conformance
+  namespace: security
+  labels: { app: conformance }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: conformance }
+  template:
+    metadata:
+      labels: { app: conformance }
+      annotations:
+        ofar/config-id: unset
+    spec:
+      containers:
+        - name: server
+          image: registry.gitlab.com/openid/conformance-suite:release-v5.3.5@sha256:576ad9d6ea4230a6d58623a03c17c74e2ae1438cceec252f8721daa53a705961
+          env:
+            - { name: BASE_URL, value: "https://conformance.security.svc" }
+            - { name: BASE_MTLS_URL, value: "https://conformance.security.svc" }
+            - { name: MONGODB_HOST, value: conformance-mongo }
+            - { name: SPRING_PROFILES_ACTIVE, value: dev }
+            # The server will not start without login providers; dev mode never uses them. These
+            # are the placeholders of the suite's docker-compose.yml.
+            - { name: OIDC_GOOGLE_CLIENTID, value: google-client }
+            - { name: OIDC_GOOGLE_SECRET, value: google-secret }
+            - { name: OIDC_GITLAB_CLIENTID, value: gitlab-client }
+            - { name: OIDC_GITLAB_SECRET, value: gitlab-secret }
+            - { name: JAVA_EXTRA_ARGS, value: "-XX:MaxRAMPercentage=70" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 3
+            failureThreshold: 100
+          resources:
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { memory: 1536Mi }
+        - name: nginx
+          image: registry.gitlab.com/openid/conformance-suite/nginx:release-v5.3.5@sha256:fd5ae05bf2a8f246f600b16a198dd670051bbad44f0b59d903da6e294e02707d
+          ports:
+            - { name: https, containerPort: 8443 }
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: nginx, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: conformance-tls }
+        - name: nginx
+          configMap: { name: conformance-nginx }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conformance
+  namespace: security
+spec:
+  selector: { app: conformance }
+  ports:
+    - { name: https, port: 443, targetPort: https }
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conformance-mongo
+  namespace: security
+  labels: { app: conformance-mongo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: conformance-mongo }
+  template:
+    metadata:
+      labels: { app: conformance-mongo }
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6.0.13@sha256:b415b12f638e2685d06c58ab7fb5943577c50fadec6d9340ef67d21aeac72070
+          ports:
+            - { name: mongo, containerPort: 27017 }
+          readinessProbe:
+            tcpSocket: { port: mongo }
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: data, mountPath: /data/db }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conformance-mongo
+  namespace: security
+spec:
+  selector: { app: conformance-mongo }
+  ports:
+    - { name: mongo, port: 27017, targetPort: mongo }
+---
+# Stage 1 stand-in for the resource server (infra/security/rs-stub.conf).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rs-stub
+  namespace: security
+  labels: { app: rs-stub }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: rs-stub }
+  template:
+    metadata:
+      labels: { app: rs-stub }
+      annotations:
+        ofar/config-id: unset
+    spec:
+      containers:
+        - name: nginx
+          image: registry.gitlab.com/openid/conformance-suite/nginx:release-v5.3.5@sha256:fd5ae05bf2a8f246f600b16a198dd670051bbad44f0b59d903da6e294e02707d
+          ports:
+            - { name: https, containerPort: 8443 }
+          readinessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: nginx, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: rs-stub-tls }
+        - name: nginx
+          configMap: { name: rs-stub-nginx }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rs-stub
+  namespace: security
+spec:
+  selector: { app: rs-stub }
+  ports:
+    - { name: https, port: 443, targetPort: https }

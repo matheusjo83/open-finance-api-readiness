@@ -2,7 +2,7 @@
 # checks the operational requirements against them (make check-requirements) and tests the
 # services against them: the transmitter (make transmitter-test), the defect proxy (make
 # proxy-test), the contract validator (make validator-test), and the business-rules job and the
-# detection report with a local Spark (make jobs-test).
+# detection report with a local Spark (make jobs-test), and the security tools (make security-test).
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
 # back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
@@ -14,7 +14,9 @@
 # match its labels, with the operational detection report gated (SparkApplications), and drives
 # the transmitter's limits with k6 through the limits proxy, checking the client's log against the
 # proxy's labels, and judges the refusals from the client's log alone, with the limits detection
-# report gated (SparkApplication).
+# report gated (SparkApplication), and deploys the authorisation server (Keycloak, FAPI-BR v2.2.0)
+# with the OpenID conformance suite and runs the suite's Brazil plan against it headless, failing
+# on any module outcome other than the documented ones (make security-deploy conformance).
 name: CI
 
 on:
@@ -59,6 +61,9 @@ jobs:
 
       - name: Contract validator tests (every class through the proxy)
         run: make validator-test
+
+      - name: Security tools tests (PKI, Keycloak realm against FAPI-BR, conformance plan)
+        run: make security-test
 
       - name: Business rules and report tests (local Spark over exported runs)
         env:
@@ -124,6 +129,9 @@ jobs:
 
       - name: Limits job (SparkApplication, refusals judged from the client log, detection gated)
         run: make limits-report
+
+      - name: Security (Keycloak, OpenID conformance suite's Brazil plan, gated on the known outcomes)
+        run: make security-deploy conformance
 
       # The run's labels, contract results, exchanges, PCM reports and detection report, and the jobs' logs.
       - name: Collect reports

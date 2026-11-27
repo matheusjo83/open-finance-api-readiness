@@ -21,6 +21,7 @@ SPARK_IMAGE := ofar/spark:local
 TRANSMITTER_IMAGE := ofar/transmitter:local
 PROXY_IMAGE := ofar/defect-proxy:local
 VALIDATOR_IMAGE := ofar/contract-validator:local
+SECURITY_IMAGE := ofar/security-tools:local
 
 KIND_VERSION := v0.33.0
 KIND_SHA256 := aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
@@ -52,6 +53,18 @@ PCM_URL := https://raw.githubusercontent.com/OpenBanking-Brasil/pcm-specs/$(PCM_
 PCM_SHA256 := ecaab5db5e5e132493cb66158c599ad0c6b9de73e066c21afc8954c6492701f3
 PCM_SPEC := specs/upstream/pcm.yml
 
+# The OpenID conformance suite's runner (release-v5.3.5, MIT): scripts/run-test-plan.py and the
+# two modules it imports, by commit and SHA-256. Through GitLab's API: its raw URLs refuse curl.
+OIDF_COMMIT := 246b2c14b8562012b02d0ac462d667fe49e1a937
+OIDF_API := https://gitlab.com/api/v4/projects/openid%2Fconformance-suite/repository/files/scripts%2F
+OIDF_DIR := .cache/oidf/$(OIDF_COMMIT)
+OIDF_SCRIPTS := $(OIDF_DIR)/run-test-plan.py $(OIDF_DIR)/conformance.py $(OIDF_DIR)/test_plan_parser.py
+OIDF_RUN_TEST_PLAN_SHA256 := 30bffed4f9796701eeb0d78a853010a9fdc16aad7e10a054a14f12bf19b4ef25
+OIDF_CONFORMANCE_SHA256 := 660214cc6ca9b3c09297f61908a575db7b1552e8f44eecd5740d1c27fa2cfca8
+OIDF_TEST_PLAN_PARSER_SHA256 := 2b00870b2dc46f1d44d047c715c0ef6978f24ece97a4a9d3b48ceeea8d01830f
+# The PKI, the realm and the plan configuration (make security-render; never committed).
+SECURITY_DIR := .cache/security
+
 SPECTRAL_IMAGE := stoplight/spectral:6.17.0@sha256:c8ffae6ee561b70e80402f1ea669e8b37c74fee48a3dbe2147b71359ed987239
 SPECTRAL := docker run --rm -v $(CURDIR)/specs:/specs:ro -w /specs $(SPECTRAL_IMAGE)
 
@@ -59,6 +72,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
+  security-test security-image security-render security-deploy conformance \
   validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke limits-job limits-report limits-campaign campaign focused-campaign reports \
   up smoke diagnose down
 
@@ -117,6 +131,15 @@ lint-specs: specs
 	$(SPECTRAL) lint --ruleset ruleset.yaml --format json --quiet fixtures/defective.yml > specs/upstream/defective.json || true
 	python3 -I scripts/check-ruleset.py specs/ruleset.yaml specs/upstream/defective.json
 
+$(OIDF_DIR)/run-test-plan.py: Makefile
+	$(call fetch_spec,$(OIDF_API)run-test-plan.py/raw?ref=$(OIDF_COMMIT),$(OIDF_RUN_TEST_PLAN_SHA256))
+
+$(OIDF_DIR)/conformance.py: Makefile
+	$(call fetch_spec,$(OIDF_API)conformance.py/raw?ref=$(OIDF_COMMIT),$(OIDF_CONFORMANCE_SHA256))
+
+$(OIDF_DIR)/test_plan_parser.py: Makefile
+	$(call fetch_spec,$(OIDF_API)test_plan_parser.py/raw?ref=$(OIDF_COMMIT),$(OIDF_TEST_PLAN_PARSER_SHA256))
+
 # The operational requirements (specs/operational) against the pinned specs and their own rules;
 # every check must also notice a copy broken on purpose. Runs in the validator's environment (PyYAML).
 check-requirements: $(BIN)/uv specs
@@ -136,6 +159,10 @@ proxy-test: $(BIN)/uv specs
 # responses, every contract defect found by its rule, business defects invisible to it.
 validator-test: $(BIN)/uv specs
 	cd services/validator && uv run --locked pytest
+
+# The security tools: the PKI, the realm against FAPI-BR v2.2.0, the suite's plan configuration.
+security-test: $(BIN)/uv
+	cd services/security && uv run --locked pytest
 
 cluster: tools
 	kind get clusters | grep -qx $(CLUSTER) || kind create cluster --config infra/kind/cluster.yaml
@@ -183,6 +210,42 @@ endef
 transmitter-deploy: transmitter-image
 	$(call apply_with_image_id,services/transmitter,infra/k8s/transmitter.yaml)
 	kubectl -n ofb rollout status deployment/transmitter --timeout=3m
+
+security-image: cluster $(OIDF_SCRIPTS)
+	docker build --build-context oidf=$(OIDF_DIR) -t $(SECURITY_IMAGE) services/security
+	$(KIND_LOAD) $(SECURITY_IMAGE)
+
+# The PKI (made once and kept in .cache/security/pki; delete that folder for new keys), the realm
+# and the conformance suite's plan configuration.
+security-render: $(BIN)/uv
+	cd services/security && uv run --locked python -m security_tools render $(CURDIR)/$(SECURITY_DIR)
+
+# Keycloak, the conformance suite and the stand-in resource server (infra/k8s/security.yaml). The
+# pods roll only when the realm, the certificates or the nginx configurations change.
+define security_object
+kubectl -n security create $(1) --dry-run=client -o yaml | kubectl apply -f -
+endef
+security-deploy: cluster security-render
+	$(call security_object,secret generic keycloak-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/keycloak.pem \
+	  --from-file=tls.key=$(SECURITY_DIR)/pki/keycloak.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
+	$(call security_object,secret generic conformance-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/conformance.pem \
+	  --from-file=tls.key=$(SECURITY_DIR)/pki/conformance.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
+	$(call security_object,secret generic rs-stub-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/rs-stub.pem \
+	  --from-file=tls.key=$(SECURITY_DIR)/pki/rs-stub.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
+	$(call security_object,secret generic keycloak-realm --from-file=ofb-realm.json=$(SECURITY_DIR)/realm.json)
+	$(call security_object,secret generic conformance-plan --from-file=plan.json=$(SECURITY_DIR)/plan.json)
+	$(call security_object,configmap conformance-nginx --from-file=nginx.conf=infra/security/conformance-nginx.conf)
+	$(call security_object,configmap rs-stub-nginx --from-file=nginx.conf=infra/security/rs-stub.conf)
+	sed "s|ofar/config-id: .*|ofar/config-id: \"$$(cat $(SECURITY_DIR)/realm.json $(SECURITY_DIR)/pki/*.pem \
+	  infra/security/*.conf | sha256sum | cut -c1-12)\"|" infra/k8s/security.yaml | kubectl apply -f -
+	for d in keycloak conformance conformance-mongo rs-stub; do \
+	  kubectl -n security rollout status deployment/$$d --timeout=6m; done
+
+# One run of the conformance suite's Brazil plan against Keycloak (infra/k8s/conformance-run.yaml).
+conformance: security-image
+	kubectl -n security delete job conformance-run --ignore-not-found --wait
+	sed "s|\"PLAN_NAME\"|\"$$(cat $(SECURITY_DIR)/plan-name.txt)\"|" infra/k8s/conformance-run.yaml | kubectl apply -f -
+	scripts/wait-job.sh security conformance-run 7200
 
 # Calls the transmitter through its Service from inside the cluster.
 transmitter-smoke:
@@ -357,6 +420,7 @@ reports:
 	-kubectl -n spark logs business-rules-driver > reports/logs/business-rules.log
 	-kubectl -n spark logs detection-report-driver > reports/logs/detection-report.log
 	-kubectl -n spark logs limits-driver > reports/logs/limits.log
+	-kubectl -n security logs job/conformance-run > reports/logs/conformance.log
 	find reports -type f | LC_ALL=C sort
 
 diagnose:
@@ -364,7 +428,8 @@ diagnose:
 	-kubectl -n spark get sparkapplications -o yaml
 	-kubectl get events -A --sort-by=.lastTimestamp | tail -50
 	-kubectl -n ofb get jobs -o wide
-	-for ns in storage spark spark-operator cnpg-system ofb; do \
+	-kubectl -n security get jobs -o wide
+	-for ns in storage spark spark-operator cnpg-system ofb security; do \
 	  for p in $$(kubectl -n $$ns get pods -o name); do \
 	    echo "=== $$ns/$$p"; kubectl -n $$ns logs $$p --all-containers --tail=80; done; done
 
