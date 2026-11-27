@@ -24,7 +24,8 @@ until both Services answer from the new pods (the proxy's run id, the transmitte
    `s3://lakehouse/limits/client/run=<run_id>/` and flushes the proxy's labels of the same run.
 
 Each request is one record of the client's view, written by the script with `console.log` into
-k6's JSON log rather than k6's metrics output (about 14 points per request):
+k6's JSON log rather than k6's metrics output (about 14 points per request); it is all the
+[limits job](limits-job.md) judges from:
 
 | Field | |
 |---|---|
@@ -66,3 +67,6 @@ and the labels of the last run and checks that:
 It prints the cases, the clean ones per kind, the defects per class and variant, and how long
 each burst took. With seed 42 the same eight cases carry a defect in every run.
 `services/validator/tests/test_limits_log.py` checks the upload.
+
+The refusals are judged by the [limits job](limits-job.md) (`make limits-report`), from the
+client's log alone, with its detection report gated.

@@ -171,12 +171,14 @@ def wilson(successes: int, total: int) -> tuple[float | None, float | None, floa
     return p, low, high
 
 
-def summarize(rows: Iterable[dict]) -> dict[str, list[dict]]:
-    """rows: run_id, verdict, unit, causes, flagged -> by_verdict, by_cause, edges, matrix."""
+def summarize(rows: Iterable[dict], verdicts: dict[str, dict[str, Any]] | None = None) -> dict[str, list[dict]]:
+    """rows: run_id, verdict, unit, causes, flagged -> by_verdict, by_cause, edges, matrix.
+    verdicts: the table of VERDICTS' shape to measure (default: the operational one; the limits
+    job passes its own)."""
     rows = list(rows)
     by_verdict, by_cause, edges = [], [], []
     matrix: dict[tuple[str, str], int] = defaultdict(int)
-    for verdict, spec in VERDICTS.items():
+    for verdict, spec in (verdicts or VERDICTS).items():
         units_ = [r for r in rows if r["verdict"] == verdict]
         flagged = [r for r in units_ if r["flagged"]]
         right = [r for r in flagged if any(matches(c, spec["allowed"]) or spec["edges"].get(c) is True
@@ -228,10 +230,12 @@ def _pct(p, low, high) -> str:
     return "n/a" if p is None else f"{100 * p:.1f} % [{100 * low:.0f}–{100 * high:.0f}]"
 
 
-def markdown(name: str, runs: list[str], summary: dict[str, list[dict]], problems: list[str]) -> str:
-    lines = [f"# Operational detection report: {name}", "",
+def markdown(name: str, runs: list[str], summary: dict[str, list[dict]], problems: list[str],
+             verdicts: dict[str, dict[str, Any]] | None = None, title: str = "Operational detection report",
+             doc: str = "docs/operational-report.md") -> str:
+    lines = [f"# {title}: {name}", "",
              f"Runs: {', '.join(f'`{r}`' for r in runs)}. Intervals: 95 % Wilson. A flag is right when its unit has "
-             "an allowed cause; recall is over the units with a target cause (docs/operational-report.md).", "",
+             f"an allowed cause; recall is over the units with a target cause ({doc}).", "",
              "## By verdict", "",
              "| Verdict | Unit | Units | Flagged | Precision | Positives | Recall |", "|---|---|---|---|---|---|---|"]
     for r in summary["by_verdict"]:
@@ -247,7 +251,7 @@ def markdown(name: str, runs: list[str], summary: dict[str, list[dict]], problem
     for e in summary["edges"]:
         lines.append(f"| `{e['verdict']}` | `{e['edge'][5:]}` | {'flagged' if e['expected_flagged'] else 'not flagged'} "
                      f"| {e['units']} | {e['as_expected']} |")
-    verdicts = list(VERDICTS)
+    verdicts = list(verdicts or VERDICTS)
     causes = sorted({c["cause"] for c in summary["matrix"]})
     counts = {(c["cause"], c["verdict"]): c["units"] for c in summary["matrix"]}
     lines += ["", "## What flagged what", "", "Flagged units per cause (rows) and verdict (columns); a unit with "

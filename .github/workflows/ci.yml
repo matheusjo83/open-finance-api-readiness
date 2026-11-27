@@ -13,7 +13,8 @@
 # reports with operational defects and computes the operational metrics over it, which must
 # match its labels, with the operational detection report gated (SparkApplications), and drives
 # the transmitter's limits with k6 through the limits proxy, checking the client's log against the
-# proxy's labels.
+# proxy's labels, and judges the refusals from the client's log alone, with the limits detection
+# report gated (SparkApplication).
 name: CI
 
 on:
@@ -120,6 +121,9 @@ jobs:
 
       - name: Limits (k6 through the limits proxy, client log and labels checked)
         run: make limits limits-smoke
+
+      - name: Limits job (SparkApplication, refusals judged from the client log, detection gated)
+        run: make limits-report
 
       # The run's labels, contract results, exchanges, PCM reports and detection report, and the jobs' logs.
       - name: Collect reports
