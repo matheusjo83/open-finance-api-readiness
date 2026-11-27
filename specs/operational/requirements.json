@@ -161,8 +161,12 @@
     "sections": "5.1.1, 5.2",
     "traffic_exceeded_status": 429,
     "operational_exceeded_status": 423,
+    "traffic_key": ["endpoint", "origin: the organizationId of the caller"],
+    "traffic_window": "a minute (divergence tpm-window)",
     "operational_counts": "2XX responses only; extra requests for pagination are not counted",
     "operational_key": ["month", "endpoint", "most granular object", "customer", "receiver"],
+    "operational_month": "Brasília time",
+    "operational_pagination": "requests for page 2 onward (divergence pagination-requests)",
     "not_applicable": "Consents: neither 429 by origin nor 423"
   },
   "timeout": {
@@ -243,6 +247,16 @@
       "sources": ["in-615", "portal-2.1.I"],
       "what": "The day's time zone is stated for availability (Brasília) and not for the response time.",
       "chosen": "Brasília for both."
+    },
+    "tpm-window": {
+      "sources": ["in-615"],
+      "what": "The manual sets transactions per minute (5.1.1) without saying whether the minute is the calendar minute or any 60 seconds.",
+      "chosen": "A 429 is early when the origin sent the endpoint fewer requests than the TPM in the 60 seconds before it, so a calendar or a sliding minute that allows the minimum passes. The transmitter counts calendar minutes."
+    },
+    "pagination-requests": {
+      "sources": ["in-615"],
+      "what": "The extra requests of a pagination are not counted for the monthly limit (5.2), without saying which they are.",
+      "chosen": "The requests for page 2 onward; they are not refused with 423 either."
     }
   }
 }

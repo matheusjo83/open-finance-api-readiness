@@ -37,6 +37,7 @@ These are outside the specifications and replace parts that belong to later laye
 | `POST /mock/consents/{consentId}/authorise` | The customer authenticates and approves at the transmitter | No authorisation server yet. |
 | `GET /mock/seed` | — | Lists the seeded customers, consents and accounts so validators know what to call. |
 | `GET /healthz` | — | Readiness probe. |
+| `x-mock-client-org-id` request header | The `organizationId` of the caller's certificate | The origin and receiver of the [limits](#limits); without it, the fixed receiver id the telemetry uses. |
 
 A consent covers every account of its customer (no account selection at authorisation).
 
@@ -72,6 +73,24 @@ apply: there are no business customers yet.
 The accounts endpoints answer only for an `AUTHORISED` consent (otherwise 401), with the
 permission the endpoint needs (otherwise 403) and for accounts of the consent's customer
 (otherwise 404).
+
+## Limits
+
+The transmitter applies both limits of the Manual de APIs (IN 615, 5.1.1 and 5.2) at the
+minimums of [operational.md](operational.md), in `transmitter/limits.py`:
+
+| Limit | Counted per | Past it | Not counted |
+|---|---|---|---|
+| Traffic (TPM) | endpoint, origin, calendar minute (UTC) | 429 `LIMITE_TRAFEGO_EXCEDIDO` | the 429s themselves |
+| Monthly | month (Brasília), endpoint, object (the consent for `GET /accounts`, the account below it), customer, receiver | 423 `LIMITE_OPERACIONAL_EXCEDIDO` | non-2XX; pages after the first (never refused either) |
+
+The traffic limit is checked first; Consents have neither. Only an `AUTHORISED` consent is
+counted for the month (the others get 401 anyway). `TRANSMITTER_LIMITS` raises limits, as JSON
+such as `{"GET /accounts": {"tpm": 1200, "monthly": 10}}`; a value below the minimum, or a
+limit on Consents, stops the transmitter at start. Two requests of the same key that pass the
+check together may both be served: a limit may let more through, never fewer. The counters
+live in memory, like the consents. The alta TPM by active consents (`alta_tpm`) is there and
+tested, but every run stays in its first band (2500).
 
 ## Dataset
 
@@ -119,6 +138,9 @@ against the pinned specs with openapi-core (status, headers, content type, body)
 seeded resources (all pages), the consent lifecycle, the error paths (400, 401, 403, 404, 422)
 and the invariants above. One test lowers the currency to `brl` and expects the validation to
 fail, so the harness is known to catch an out-of-spec response.
+
+`tests/test_limits.py` checks the limits: the table against the requirements, the minute, the
+month and its turn at midnight in Brasília, what is not counted, and the overrides.
 
 openapi-core does not check the `openIdConnect` security scheme; security is a later layer.
 None of the pinned schemas sets `additionalProperties: false`, so an undeclared extra field
