@@ -89,16 +89,34 @@ Consents, the endpoint of a path with a query, and the gate on a missed flag, a 
 edge. Changing any of these rules in `judge.py` (`<=` for `<`, every page or every status counted,
 the UTC month, a wider window, the order of ties) fails a test.
 
-## Trial campaign
+## Reference campaign
 
-`make limits-campaign SEEDS=5` on 2026-11-27 (kind on a laptop, about 2.5 minutes a seed): 170
-cases, 92,885 requests, every variant of the three classes drawn at least twice.
+`make limits-campaign SEEDS=20 LIMITS_REPORT=limits-reference-20261127`, 2026-11-27 (kind on a
+laptop, 39 minutes, about 2 minutes a seed): 20 limits runs (seeds 1 to 20), each checked by
+`make limits-smoke` first, 680 cases and 371,540 requests in all. Every verdict holds its gate,
+and every variant of the three classes was drawn at least 15 times.
 
 | Verdict | Cases | Flagged | Positives | Precision | Recall |
 |---|---|---|---|---|---|
-| `traffic_limit_early` | 120 | 12 | 12 | 100 % [76–100] | 100 % [76–100] |
-| `operational_limit_early` | 120 | 31 | 31 | 100 % [89–100] | 100 % [89–100] |
-| `limit_not_applicable` | 50 | 10 | 10 | 100 % [72–100] | 100 % [72–100] |
+| `traffic_limit_early` | 480 | 50 | 50 | 100 % [93–100] | 100 % [93–100] |
+| `operational_limit_early` | 480 | 109 | 109 | 100 % [97–100] | 100 % [97–100] |
+| `limit_not_applicable` | 200 | 54 | 54 | 100 % [93–100] | 100 % [93–100] |
 
-The edges held in every case built at them: 16 at `tpm-at-limit`, 77 at `monthly-at-limit`. No
-flagged case in these seeds needed the allowance of `early-traffic-limit` for an early 423.
+| Cause | Cases | Flagged |
+|---|---|---|
+| `early-traffic-limit/off-by-one` | 25 | 25 |
+| `early-traffic-limit/random` | 25 | 25 |
+| `early-operational-limit/off-by-one` | 32 | 32 |
+| `early-operational-limit/random` | 43 | 43 |
+| `early-operational-limit/counts-errors` | 19 | 19 |
+| `early-operational-limit/counts-pagination` | 15 | 15 |
+| `limit-not-applicable/429` | 30 | 30 |
+| `limit-not-applicable/423` | 24 | 24 |
+
+- The edges held in every case built at them: 65 at `tpm-at-limit`, 321 at `monthly-at-limit`.
+- No flagged case needed the allowance of `early-traffic-limit` for an early 423: each flag of a
+  verdict came from its own class.
+- The traffic bursts (TPM + 50 requests from a minute boundary) took 6.8 to 22.3 seconds, all
+  inside their calendar minute.
+- A five-seed trial of the same day (170 cases) had given the same result with wider intervals
+  (for example `traffic_limit_early` [76–100]).
