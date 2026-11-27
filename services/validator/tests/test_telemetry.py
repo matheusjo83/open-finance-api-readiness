@@ -18,7 +18,7 @@ from starlette.routing import Route
 from contract_validator.rules import Exchange
 from contract_validator.spec import spec_for
 from contract_validator.telemetry import Parties as ClientParties
-from contract_validator.telemetry import client_report, token_id, whole_ms
+from contract_validator.telemetry import client_report, run_receiver, token_id, whole_ms
 from contract_validator.walk import Walker
 from defect_proxy.catalogue import ROUTES
 from defect_proxy.labels import LabelSink
@@ -71,6 +71,13 @@ def test_reports_are_valid_and_paired(validate, pcm):
     assert seen <= KNOWN_SCHEMA_ERRORS, seen - KNOWN_SCHEMA_ERRORS
     # The walk meets the disagreements, so the list above is not there for nothing.
     assert {e[1] for e in seen} == {"additionalInfo.rejectedBy", "additionalInfo.dropReason"}
+
+    # The run is a receiver of its own (the transmitter's monthly limits start from zero for it),
+    # on both sides and in the labels.
+    receiver = run_receiver(result.summary["run_id"])
+    assert receiver != ClientParties().client_org_id
+    assert {r["clientOrgId"] for r in [*client.values(), *server.values()]} == {receiver}
+    assert {label["origin"] for label in result.labels} == {receiver}
 
     for interaction, report in client.items():
         assert [report[f] for f in PAIRING_FIELDS] == [server[interaction][f] for f in PAIRING_FIELDS]

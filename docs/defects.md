@@ -42,6 +42,32 @@ non-authorised consent. The two renewal classes come last in the catalogue, so a
 the other classes' bands of the draw, and so their decisions, as they were. The defaults add up
 to 0.95.
 
+## Limit classes
+
+The operational layer's live defects, off in the walk's proxy and on in a proxy of their own,
+`proxy-limits` (`http://proxy-limits.ofb.svc`, every other class at 0), which the load tool calls
+(`services/proxy/src/defect_proxy/limits.py`). A transmitter may apply the
+[limits](transmitter.md#limits) or not, never below the minimums: these classes refuse too early,
+or where no limit applies.
+
+| Class | Applies to | From which request on | Status |
+|---|---|---|---|
+| `early-traffic-limit` | Accounts endpoints | `random`: the k-th of a minute, k below the TPM; `off-by-one`: the TPM-th (it must be the one after) | 429 |
+| `early-operational-limit` | Accounts endpoints | Successes of first pages: `random`, the k-th, k below the monthly minimum; `off-by-one`, the minimum-th; `counts-pagination`, once the 2XX counted with the later pages reach the minimum; `counts-errors`, once the first pages counted whatever their status reach it | 423 |
+| `limit-not-applicable` | Consents endpoints | The k-th of a minute, k from 1 to 20 | `429` or `423` |
+
+They are drawn per **test case**, one origin (`x-mock-client-org-id`) on one endpoint, not per
+response: the load tool repeats the same request, so a draw per request would be all or nothing.
+One uniform draw from the seed, the origin and the route walks the applicable limit classes in
+this order; a second one with the class picks the variant and k. A drawn case keeps counters in
+the proxy (one replica) and refuses every request from the one named on (the rest of the minute,
+or of the month), with the error envelope the transmitter uses. A `counts-*` case refuses nothing
+unless the traffic paginates or fails before the transmitter's own limit; then no exchange carries
+the class and the case is not a positive. The refusals are valid against the specs, Consents
+included (429 is declared there, 423 falls under `default`): only the operational layer can
+notice them. The two groups (response classes, limit classes) are separate draws, so each adds up
+to at most 1; an exchange refused by a limit class gets no response defect.
+
 ## Selection
 
 The decision depends only on the seed (`DEFECT_SEED`) and the request: method, path, sorted query
@@ -66,6 +92,7 @@ on `POST /_proxy/flush` and at shutdown. A failed write keeps the records for th
 | `ts` | When the proxy answered (UTC, milliseconds) |
 | `interaction_id` | The `x-fapi-interaction-id` the client sent: the join key with the validators' results |
 | `method`, `path`, `route`, `query`, `consent` | The request (`route` such as `accounts.balances`; `consent` is the bearer token) |
+| `origin` | The caller's `x-mock-client-org-id`, or the fixed receiver id without it |
 | `upstream_status`, `status` | What the transmitter answered and what the client got |
 | `seed` | `DEFECT_SEED` |
 | `defect_class`, `defect_layer` | The class and its layer, or null for a clean response |
@@ -96,6 +123,8 @@ point back at the proxy and pagination stays behind it.
   - every class does what the table says;
   - decisions repeat for the same seed and change with another one;
   - the rates hold over 20,000 draws;
+  - each limit class and variant refuses from the request it names, per test case, and its
+    refusals keep the specs (`tests/test_limits.py`);
   - the label sink survives a failed write.
 - `make proxy-smoke` walks the seeded resources through the proxy in the cluster and reads the
   labels back from SeaweedFS. Every call must have its label (by interaction id), and at least

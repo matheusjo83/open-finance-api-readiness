@@ -1,0 +1,68 @@
+# The limits proxy: the defect proxy's image with only the limit classes on, drawn per test case
+# (docs/defects.md, Limit classes). The load tool (k6) calls it; the walk keeps the other proxy.
+# In-cluster URL: http://proxy-limits.ofb.svc
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-limits
+  namespace: ofb
+  labels: { app: proxy-limits }
+spec:
+  # One replica: one run id per run, and the test cases' counters in one place.
+  replicas: 1
+  selector:
+    matchLabels: { app: proxy-limits }
+  template:
+    metadata:
+      labels: { app: proxy-limits }
+      annotations:
+        # make proxy-deploy writes a hash of the image's build inputs here: changed inputs
+        # roll the pod, unchanged ones leave it alone.
+        ofar/image-id: unset
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: proxy-limits
+          # Built locally and loaded into kind (make proxy-image).
+          image: ofar/defect-proxy:local
+          imagePullPolicy: Never
+          env:
+            - { name: UPSTREAM, value: "http://transmitter.ofb.svc" }
+            - { name: DEFECT_SEED, value: "42" }
+            # The response classes off, the limit classes on (one draw per test case).
+            - name: DEFECT_RATES
+              value: >-
+                {"missing-required-field": 0, "invalid-format": 0, "missing-interaction-id": 0,
+                "undeclared-field": 0, "inconsistent-balance": 0, "broken-pagination": 0,
+                "consent-not-enforced": 0, "transaction-outside-window": 0, "broken-extension-history": 0,
+                "extension-not-reflected": 0, "early-traffic-limit": 0.3, "early-operational-limit": 0.3,
+                "limit-not-applicable": 0.3}
+            - { name: S3_ENDPOINT, value: "http://seaweedfs-all-in-one.storage.svc:8333" }
+            - { name: LABELS_BUCKET, value: lakehouse }
+            - { name: AWS_REGION, value: us-east-1 }
+          envFrom:
+            - secretRef: { name: labels-credentials }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /_proxy/healthz, port: http }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-limits
+  namespace: ofb
+spec:
+  selector: { app: proxy-limits }
+  ports:
+    - { name: http, port: 80, targetPort: http }

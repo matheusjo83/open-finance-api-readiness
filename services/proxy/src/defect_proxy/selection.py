@@ -13,11 +13,13 @@ import json
 import random
 
 from .catalogue import CATALOGUE, Defect, Exchange
+from .limits import LIMIT_CATALOGUE
 
 
 def parse_rates(raw: str | None) -> dict[str, float]:
-    """Per-class rates: the defaults, overridden by a JSON object (DEFECT_RATES)."""
-    rates = {d.id: d.default_rate for d in CATALOGUE}
+    """Per-class rates: the defaults, overridden by a JSON object (DEFECT_RATES). The response
+    classes and the limit classes are two draws, so each group adds up to at most 1."""
+    rates = {d.id: d.default_rate for d in CATALOGUE} | {d.id: d.default_rate for d in LIMIT_CATALOGUE}
     if raw:
         override = json.loads(raw)
         unknown = set(override) - set(rates)
@@ -26,8 +28,10 @@ def parse_rates(raw: str | None) -> dict[str, float]:
         rates.update({k: float(v) for k, v in override.items()})
     if any(not 0 <= r <= 1 for r in rates.values()):
         raise ValueError("defect rates must be between 0 and 1")
-    if sum(rates.values()) > 1:
-        raise ValueError(f"defect rates add up to {sum(rates.values()):.2f}; at most 1 so one draw picks one class")
+    for group, name in ((CATALOGUE, "response"), (LIMIT_CATALOGUE, "limit")):
+        total = sum(rates[d.id] for d in group)
+        if total > 1:
+            raise ValueError(f"{name} defect rates add up to {total:.2f}; at most 1 so one draw picks one class")
     return rates
 
 

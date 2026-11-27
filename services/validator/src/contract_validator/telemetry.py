@@ -38,6 +38,17 @@ class Parties:
     token_pepper: str = "local-cluster-only"
 
 
+# Stand-in for the organizationId of the client's certificate, read by the transmitter (limits)
+# and the proxy (server reports).
+ORIGIN_HEADER = "x-mock-client-org-id"
+
+
+def run_receiver(run_id: str) -> str:
+    """Each run is a receiving institution of its own, so the transmitter's monthly limits start
+    from zero for it (a fixed receiver would carry the counts across the runs of a campaign)."""
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"run-{run_id}.receiver.ofb.svc"))
+
+
 def whole_ms(seconds: float) -> int:
     """Whole milliseconds, rounded up: the portal leaves out reports with processTimespan 0."""
     return max(1, math.ceil(seconds * 1000))

@@ -52,13 +52,18 @@ class HttpClient(Protocol):
 
 
 class Walker:
-    def __init__(self, client: HttpClient, today: Callable[[], date] = date.today, balance_consents: int = 2) -> None:
+    def __init__(self, client: HttpClient, today: Callable[[], date] = date.today, balance_consents: int = 2,
+                 origin: str | None = None) -> None:
         self.client, self.today, self.balance_consents = client, today, balance_consents
+        # The receiver's id (x-mock-client-org-id) on every call; None sends no header.
+        self.origin = origin
 
     def call(self, method: str, url: str, token: str | None, body: dict | None = None,
              extra: dict[str, str] | None = None) -> tuple[Exchange, Any]:
         parts = urlsplit(url)
         headers = {"x-fapi-interaction-id": str(uuid.uuid4()), **(extra or {})}
+        if self.origin is not None:
+            headers["x-mock-client-org-id"] = self.origin
         if token is not None:
             headers["authorization"] = f"Bearer {token}"
         content = None

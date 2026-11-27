@@ -24,6 +24,7 @@ from starlette.routing import Route
 
 from .catalogue import Context, Exchange, route_of
 from .labels import LabelSink
+from .limits import DEFAULT_ORIGIN, ORIGIN_HEADER, LimitDefects
 from .selection import choose
 from .telemetry import Parties, TelemetryMiddleware
 
@@ -36,7 +37,8 @@ def new_run_id() -> str:
 
 
 def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict[str, float], sink: LabelSink,
-               flush_seconds: float = 5.0, parties: Parties = Parties()) -> Starlette:
+               flush_seconds: float = 5.0, parties: Parties = Parties(),
+               clock=lambda: datetime.now(timezone.utc)) -> Starlette:
     # The server's PCM reports: same store and run as the labels.
     reports = LabelSink(sink.store, sink.run_id, sink.max_buffer, kind="pcm/server")
 
@@ -45,6 +47,7 @@ def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict
     else:  # tests: the transmitter in process
         client = httpx2.AsyncClient(transport=upstream, base_url="http://transmitter", timeout=10.0)
     counters = {"exchanges": 0, "defects": 0}
+    limit_defects = LimitDefects(seed, rates)
     seeded: dict[str, str] = {}
 
     async def substitute_consent(token: str) -> str | None:
@@ -107,8 +110,12 @@ def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict
             status=upstream_response.status_code, headers=response_headers(upstream_response),
             body=parse(upstream_response), upstream_status=upstream_response.status_code, replaced=replaced,
         )
-        chosen = choose(seed, rates, ex)
+        origin = request.headers.get(ORIGIN_HEADER) or DEFAULT_ORIGIN
         injection, defect = None, None
+        refused = limit_defects.apply(ex, origin, clock())
+        chosen = None if refused else choose(seed, rates, ex)
+        if refused is not None:
+            defect, injection = refused
         if chosen is not None:
             defect, rng = chosen
             injection = await defect.inject(ex, rng, context)
@@ -122,7 +129,7 @@ def create_app(upstream: str | httpx2.AsyncBaseTransport, seed: int, rates: dict
             "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "interaction_id": request.headers.get("x-fapi-interaction-id"),
             "method": request.method, "path": request.url.path, "route": route,
-            "query": request.url.query or None, "consent": ex.token,
+            "query": request.url.query or None, "consent": ex.token, "origin": origin,
             "upstream_status": ex.upstream_status, "status": ex.status, "seed": seed,
             "defect_class": defect.id if defect else None, "defect_layer": defect.layer if defect else None,
             "defect_variant": injection.variant if injection else None,

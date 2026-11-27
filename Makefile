@@ -192,9 +192,12 @@ proxy-image: cluster
 	docker build -t $(PROXY_IMAGE) services/proxy
 	$(KIND_LOAD) $(PROXY_IMAGE)
 
+# Both proxies: the walk's and the limits one (only the limit classes on, for k6).
 proxy-deploy: proxy-image
 	$(call apply_with_image_id,services/proxy,infra/k8s/proxy.yaml)
+	$(call apply_with_image_id,services/proxy,infra/k8s/proxy-limits.yaml)
 	kubectl -n ofb rollout status deployment/proxy --timeout=3m
+	kubectl -n ofb rollout status deployment/proxy-limits --timeout=3m
 
 # Walks the seeded resources through the proxy and reads the labels back from SeaweedFS.
 proxy-smoke:

@@ -41,7 +41,9 @@ asks for the next page number anyway, a careful client's probe. A dropped next l
 shows up as a later page with items.
 
 It covers the 11 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
-id joins the result with the proxy's label. With 5 customers it makes about 270 calls;
+id joins the result with the proxy's label. Every call also carries the run's receiver id as
+`x-mock-client-org-id` (the stand-in for the client's certificate), so the transmitter's monthly
+limits start from zero in each run ([telemetry.md](telemetry.md)). With 5 customers it makes about 270 calls;
 with 50, about 2,400.
 
 The defects the proxy draws depend on the requests (decision 17), and the walk is fixed, so two

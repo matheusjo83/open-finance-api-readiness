@@ -62,11 +62,13 @@ def drop_reason(status: int) -> str:
 
 
 def server_report(route: str, method: str, status: int, interaction_id: str | None, started: datetime,
-                  seconds: float, parties: Parties) -> dict[str, Any]:
+                  seconds: float, parties: Parties, client_org_id: str | None = None) -> dict[str, Any]:
+    """`client_org_id`: the caller's x-mock-client-org-id (the stand-in for its certificate), or
+    the fixed receiver of `parties`."""
     report: dict[str, Any] = {
         "role": "SERVER", "endpoint": ENDPOINTS[route], "httpMethod": method, "statusCode": status,
         "timestamp": utc_ms(started), "processTimespan": whole_ms(seconds),
-        "clientOrgId": parties.client_org_id, "serverOrgId": parties.server_org_id,
+        "clientOrgId": client_org_id or parties.client_org_id, "serverOrgId": parties.server_org_id,
         "additionalInfo": {"dropReason": drop_reason(status)} if route == "consents.create" else {},
     }
     if interaction_id and UUID.match(interaction_id):
@@ -100,7 +102,8 @@ class TelemetryMiddleware:
             seconds = time.perf_counter() - t0
             # The client's id, or the one the server generated when the client sent none.
             interaction = _header(scope["headers"], b"x-fapi-interaction-id") or _header(headers, b"x-fapi-interaction-id")
-            report = server_report(route, scope["method"], status, interaction, started, seconds, self.parties)
+            report = server_report(route, scope["method"], status, interaction, started, seconds, self.parties,
+                                   _header(scope["headers"], b"x-mock-client-org-id"))
             if self.sink.add({"run_id": self.sink.run_id, "sent_at": utc_ms(datetime.now(timezone.utc)), "report": report}):
                 asyncio.create_task(self.sink.aflush())
 

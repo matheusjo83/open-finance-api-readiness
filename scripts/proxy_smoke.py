@@ -35,19 +35,45 @@ def wait_for_service(url: str, seconds: int = 60) -> None:
             time.sleep(1)
 
 
-def call(path: str, token: str | None = None, method: str = "GET") -> tuple[int, dict]:
+def run_id(base: str) -> str | None:
+    try:
+        with urllib.request.urlopen(base + "/_proxy/run", timeout=5) as r:
+            return json.load(r)["run_id"]
+    except (urllib.error.URLError, ConnectionError, TimeoutError):
+        return None
+
+
+def wait_for_this_pod(seconds: int = 90, in_a_row: int = 5) -> None:
+    """Right after a rollout the Service may still route to the old pod, whose labels go to
+    another run: wait until it answers with this pod's run id several times in a row."""
+    mine, deadline, seen = run_id("http://localhost:8080"), time.monotonic() + seconds, 0
+    while seen < in_a_row:
+        seen = seen + 1 if mine and run_id(BASE) == mine else 0
+        if time.monotonic() > deadline:
+            sys.exit(f"{BASE} does not answer with this pod's run {mine} after {seconds}s")
+        time.sleep(0.5 if seen else 1)
+
+
+def call(path: str, token: str | None = None, method: str = "GET", attempts: int = 3) -> tuple[int, dict]:
+    """A connection that fails or times out is tried again with the same interaction id."""
     headers = {"x-fapi-interaction-id": str(uuid.uuid4())}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(BASE + path, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(request, timeout=10) as r:
-            return r.status, {"interaction": headers["x-fapi-interaction-id"], "body": json.load(r)}
-    except urllib.error.HTTPError as e:
-        return e.code, {"interaction": headers["x-fapi-interaction-id"], "body": None}
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as r:
+                return r.status, {"interaction": headers["x-fapi-interaction-id"], "body": json.load(r)}
+        except urllib.error.HTTPError as e:
+            return e.code, {"interaction": headers["x-fapi-interaction-id"], "body": None}
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(2)
 
 
 wait_for_service(BASE + "/mock/seed")
+wait_for_this_pod()
 sent = []
 _, seed = call("/mock/seed")
 for customer in seed["body"]["customers"]:
