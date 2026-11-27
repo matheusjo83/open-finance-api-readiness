@@ -10,6 +10,7 @@ from openapi_core.validation.response.exceptions import DataValidationError, Mis
 
 from defect_proxy.catalogue import ACCOUNTS, BY_ID, CATALOGUE, CONSENTS, Exchange
 from defect_proxy.labels import LabelSink, MemoryStore
+from defect_proxy.limits import LIMIT_CATALOGUE
 from defect_proxy.selection import choose, parse_rates
 
 from .conftest import validate, zero_rates
@@ -221,9 +222,12 @@ def test_rates_are_respected():
 
 
 def test_parse_rates():
-    assert parse_rates(None) == {d.id: d.default_rate for d in CATALOGUE}
+    assert parse_rates(None) == {d.id: d.default_rate for d in CATALOGUE} | {d.id: 0.0 for d in LIMIT_CATALOGUE}
     assert parse_rates('{"invalid-format": 0.08}')["invalid-format"] == 0.08
-    for bad in ['{"nope": 0.1}', '{"invalid-format": 1.5}', '{"invalid-format": 0.9}']:
+    # The limit classes are a draw of their own: they add up to 1 apart from the others.
+    assert parse_rates('{"early-traffic-limit": 0.5, "early-operational-limit": 0.5}')["early-traffic-limit"] == 0.5
+    for bad in ['{"nope": 0.1}', '{"invalid-format": 1.5}', '{"invalid-format": 0.9}',
+                '{"early-traffic-limit": 0.6, "early-operational-limit": 0.5}']:
         with pytest.raises(ValueError):
             parse_rates(bad)
     assert set(BY_ID) == {d.id for d in CATALOGUE} and len(CATALOGUE) == 10
