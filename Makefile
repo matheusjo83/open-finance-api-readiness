@@ -72,7 +72,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  security-test security-image security-render security-deploy conformance \
+  security-test security-image security-render security-deploy conformance security-reports \
   validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke limits-job limits-report limits-campaign campaign focused-campaign reports \
   up smoke diagnose down
 
@@ -421,6 +421,12 @@ reports:
 	-kubectl -n spark logs detection-report-driver > reports/logs/detection-report.log
 	-kubectl -n spark logs limits-driver > reports/logs/limits.log
 	-kubectl -n security logs job/conformance-run > reports/logs/conformance.log
+	find reports -type f | LC_ALL=C sort
+
+# The conformance run's log alone (CI's security job, whose cluster has no lakehouse).
+security-reports:
+	rm -rf reports && mkdir -p reports/logs
+	kubectl -n security logs job/conformance-run > reports/logs/conformance.log
 	find reports -type f | LC_ALL=C sort
 
 diagnose:

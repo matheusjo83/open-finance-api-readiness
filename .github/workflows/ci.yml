@@ -14,9 +14,11 @@
 # match its labels, with the operational detection report gated (SparkApplications), and drives
 # the transmitter's limits with k6 through the limits proxy, checking the client's log against the
 # proxy's labels, and judges the refusals from the client's log alone, with the limits detection
-# report gated (SparkApplication), and deploys the authorisation server (Keycloak, FAPI-BR v2.2.0)
-# with the OpenID conformance suite and runs the suite's Brazil plan against it headless, failing
-# on any module outcome other than the documented ones (make security-deploy conformance).
+# report gated (SparkApplication).
+# security: in its own kind cluster, in parallel with platform (it needs none of the lakehouse),
+# deploys the authorisation server (Keycloak, FAPI-BR v2.2.0) with the OpenID conformance suite
+# and runs the suite's Brazil plan against it headless, failing on any module outcome other than
+# the documented ones (make security-deploy conformance).
 name: CI
 
 on:
@@ -130,9 +132,6 @@ jobs:
       - name: Limits job (SparkApplication, refusals judged from the client log, detection gated)
         run: make limits-report
 
-      - name: Security (Keycloak, OpenID conformance suite's Brazil plan, gated on the known outcomes)
-        run: make security-deploy conformance
-
       # The run's labels, contract results, exchanges, PCM reports and detection report, and the jobs' logs.
       - name: Collect reports
         if: always()
@@ -143,6 +142,45 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: reports
+          if-no-files-found: ignore
+          path: reports/
+
+      - name: Diagnostics
+        if: failure()
+        run: make diagnose
+
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # kind, kubectl and uv at the versions pinned in the Makefile, uv's cache, and the suite's
+      # scripts (pinned by commit and SHA-256).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .bin
+            ~/.cache/uv
+            .cache/oidf
+          key: security-${{ hashFiles('Makefile', 'services/security/uv.lock') }}
+
+      - name: Cluster (kind)
+        run: make cluster
+
+      - name: Security (Keycloak, OpenID conformance suite's Brazil plan, gated on the known outcomes)
+        run: make security-deploy conformance
+
+      # The conformance run's log.
+      - name: Collect reports
+        if: always()
+        run: make security-reports || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-reports
           if-no-files-found: ignore
           path: reports/
 
