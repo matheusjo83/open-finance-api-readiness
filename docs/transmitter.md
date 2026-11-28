@@ -28,13 +28,16 @@ version. Errors use the `errors[]` / `meta` envelope with `application/json; cha
 
 ## Mock-only stand-ins
 
-These are outside the specifications and replace parts that belong to later layers:
+These are outside the specifications and replace parts that belong to later layers. Through the
+mTLS gateway (`https://gateway.security.svc`) the transmitter is a FAPI-BR resource server
+instead, and the first, second and last rows do not apply there ([security.md](security.md#the-transmitter-as-resource-server));
+the walk still uses them until it moves to the real flows (backlog item 19, stage 2b):
 
 | Stand-in | Real Open Finance | Why |
 |---|---|---|
 | Accounts endpoints and the renewal (`POST .../extends`) take `Authorization: Bearer <consentId>` | A FAPI-BR access token (`authorization_code`) bound to the consent | Security (FAPI-BR, mTLS, PAR) is a later layer. |
 | Consents endpoints accept any bearer token | A `client_credentials` token from DCR | Same. |
-| `POST /mock/consents/{consentId}/authorise` | The customer authenticates and approves at the transmitter | No authorisation server yet. |
+| `POST /mock/consents/{consentId}/authorise` (optional body `{"cpf": ...}`: the customer's, 403 if not the consent's) | The customer authenticates and approves at the transmitter | Keycloak calls it as it issues a customer's token for `consent:<id>`; the walk calls it directly. |
 | `GET /mock/seed` | — | Lists the seeded customers, consents and accounts so validators know what to call. |
 | `GET /healthz` | — | Readiness probe, with an id of the instance (a fresh pod tells itself apart). |
 | `x-mock-client-org-id` request header | The `organizationId` of the caller's certificate | The origin and receiver of the [limits](#limits); without it, the fixed receiver id the telemetry uses. |

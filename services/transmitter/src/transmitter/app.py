@@ -1,15 +1,23 @@
 """HTTP layer: Consents 3.3.1 and Accounts 2.4.2 over the seeded dataset.
 
-Mock-only stand-ins, outside the specifications (docs/transmitter.md):
+Through the mTLS gateway the transmitter is a FAPI-BR resource server (security.py): the
+consents endpoints take a client_credentials token with scope `consents` and see only the
+consents of that client; the accounts endpoints and the renewal take a token whose
+`consent:<id>` names an AUTHORISED consent of the same client.
+
+Mock-only stand-ins, outside the specifications (docs/transmitter.md), for requests that do not
+come through the gateway:
 - the accounts endpoints and the consent renewal (POST /consents/{consentId}/extends) take
   `Authorization: Bearer <consentId>` instead of a FAPI access or authorization_code token bound
   to the consent; the other consents endpoints accept any bearer token;
 - POST /mock/consents/{consentId}/authorise stands for the customer's approval at the
-  transmitter; GET /mock/seed lists the seeded customers, consents and accounts.
+  transmitter (the authorisation server calls it too, with the customer's CPF); GET /mock/seed
+  lists the seeded customers, consents and accounts.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import uuid
@@ -24,6 +32,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import dataset as ds
 from .consents import MAX_VALIDITY, Consent, ConsentStore, Extension, seed_consents
 from .limits import Limits, configured, follow_up_page, operation
+from .security import CERT_HEADER, GATEWAY_HEADER, Caller, Refused, Verifier, certificate, organisation_of, unverified_consent
 
 CONSENTS = "/open-banking/consents/v3"
 ACCOUNTS = "/open-banking/accounts/v2"
@@ -86,8 +95,10 @@ def api_of(path: str) -> str | None:
 
 def create_app(seed: int = 42, customers: int = 5,
                clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-               limits: str | None = None) -> FastAPI:
-    """`limits`: TRANSMITTER_LIMITS, JSON raising some limits above the minimums (limits.py)."""
+               limits: str | None = None, verifier: Verifier | None = None) -> FastAPI:
+    """`limits`: TRANSMITTER_LIMITS, JSON raising some limits above the minimums (limits.py).
+    `verifier`: checks the tokens of requests through the gateway (security.py); without one,
+    those requests are refused."""
     started = clock()
     data = ds.build(seed, started.date(), customers)
     store = ConsentStore()
@@ -147,15 +158,26 @@ def create_app(seed: int = 42, customers: int = 5,
             return await call_next(request)
         value = request.headers.get("x-fapi-interaction-id", "")
         request.state.interaction_id = value if UUID_RE.match(value) else str(uuid.uuid4())
-        origin = request.headers.get(ORIGIN_HEADER) or DEFAULT_RECEIVER
+        auth = request.headers.get("authorization", "")
+        bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if via_gateway(request):
+            # The organisation of the certificate; the consent of the token, unchecked (only a
+            # successful response, so a checked token, is counted).
+            try:
+                origin = organisation_of(certificate(request.headers.get(CERT_HEADER)))
+            except Refused:
+                origin = DEFAULT_RECEIVER
+            consent_key = unverified_consent(bearer) if bearer else None
+        else:
+            origin = request.headers.get(ORIGIN_HEADER) or DEFAULT_RECEIVER
+            consent_key = bearer or None
         now = clock()
         if not counters.admit_traffic(endpoint, origin, now):
             return error(request, 429, "LIMITE_TRAFEGO_EXCEDIDO", "Limite de tráfego excedido",
                          "O limite de requisições por minuto deste endpoint para a instituição foi atingido.")
         key = None
         if counters.limits[endpoint][1] is not None and not follow_up_page(dict(request.query_params)):
-            auth = request.headers.get("authorization", "")
-            consent = store.get(auth[7:].strip(), now) if auth.lower().startswith("bearer ") else None
+            consent = store.get(consent_key, now) if consent_key else None
             if consent is not None and consent.status == "AUTHORISED":
                 key = counters.monthly_key(endpoint, request.url.path, consent.consent_id, consent.cpf, origin, now)
             if key is not None and counters.monthly_exhausted(key):
@@ -171,6 +193,32 @@ def create_app(seed: int = 42, customers: int = 5,
         if not value.lower().startswith("bearer ") or not value[7:].strip():
             raise ApiError(401, "NAO_AUTORIZADO", "Não autorizado", "Cabeçalho Authorization com token Bearer ausente.")
         return value[7:].strip()
+
+    def via_gateway(request: Request) -> bool:
+        return GATEWAY_HEADER in request.headers
+
+    def fapi_caller(request: Request, scope: str) -> Caller | None:
+        """The checked caller of a request through the gateway (None for the stand-ins). A
+        token that does not check is a 401; one without the scope the endpoint needs, a 403."""
+        if not via_gateway(request):
+            return None
+        token = require_bearer(request)
+        if verifier is None:
+            raise ApiError(401, "NAO_AUTORIZADO", "Não autorizado", "O servidor de recursos não está configurado.")
+        try:
+            caller = verifier.check(token, request.headers.get(CERT_HEADER))
+        except Refused as exc:
+            raise ApiError(401, "NAO_AUTORIZADO", "Não autorizado", f"Token recusado: {exc}.") from None
+        if scope not in caller.scopes:
+            raise ApiError(403, "PERMISSAO_INSUFICIENTE", "Escopo insuficiente", f"O token não tem o escopo {scope}.")
+        return caller
+
+    def owned(consent: Consent, caller: Caller | None) -> Consent:
+        """Through the gateway a client sees only the consents it created."""
+        if caller is not None and consent.client_id != caller.client_id:
+            raise ApiError(403, "NAO_AUTORIZADO", "Consentimento de outro cliente",
+                           "O consentimento não pertence ao cliente do token.")
+        return consent
 
     def self_link(request: Request) -> str:
         return str(request.url)
@@ -235,6 +283,7 @@ def create_app(seed: int = 42, customers: int = 5,
     async def post_consent(request: Request):
         interaction_id(request)
         require_bearer(request)
+        caller = fapi_caller(request, "consents")
         try:
             payload = await request.json()
         except ValueError:
@@ -244,7 +293,8 @@ def create_app(seed: int = 42, customers: int = 5,
         if expiration is not None and not (now < expiration <= now + MAX_VALIDITY):
             raise ApiError(422, "DATA_EXPIRACAO_INVALIDA", "Data de expiração inválida",
                            "expirationDateTime deve estar no futuro e em até 12 meses.")
-        consent = store.create(cpf, cnpj, permissions, expiration, linked, now)
+        consent = store.create(cpf, cnpj, permissions, expiration, linked, now,
+                               client_id=caller.client_id if caller else None)
         return ok(request, consent_body(request, consent, read=False), status=201)
 
     def find_consent(consent_id: str) -> Consent:
@@ -257,13 +307,14 @@ def create_app(seed: int = 42, customers: int = 5,
     def get_consent(consent_id: str, request: Request):
         interaction_id(request)
         require_bearer(request)
-        return ok(request, consent_body(request, find_consent(consent_id), read=True))
+        caller = fapi_caller(request, "consents")
+        return ok(request, consent_body(request, owned(find_consent(consent_id), caller), read=True))
 
     @app.delete(CONSENTS + "/consents/{consent_id}")
     def delete_consent(consent_id: str, request: Request):
         interaction_id(request)
         require_bearer(request)
-        consent = find_consent(consent_id)
+        consent = owned(find_consent(consent_id), fapi_caller(request, "consents"))
         with store.lock:
             if consent.status == "REJECTED":
                 raise ApiError(422, "CONSENTIMENTO_EM_STATUS_REJEITADO", "Consentimento rejeitado",
@@ -275,7 +326,13 @@ def create_app(seed: int = 42, customers: int = 5,
     # --- accounts -------------------------------------------------------------------------
 
     def authorised_consent(request: Request, permission: str) -> Consent:
-        consent = store.get(require_bearer(request), clock())
+        token = require_bearer(request)
+        caller = fapi_caller(request, "accounts")
+        # Through the gateway, the consent of the token's consent:<id>, and only the client's own.
+        consent_id = caller.consent_id if caller else token
+        consent = store.get(consent_id, clock()) if consent_id else None
+        if consent is not None and caller is not None and consent.client_id != caller.client_id:
+            consent = None
         if consent is None or consent.status != "AUTHORISED":
             raise ApiError(401, "NAO_AUTORIZADO", "Consentimento inválido",
                            "O token não corresponde a um consentimento com status AUTHORISED.")
@@ -337,7 +394,9 @@ def create_app(seed: int = 42, customers: int = 5,
         accounts endpoints). Only an AUTHORISED consent, only to a later date within 12 months,
         or to no date (indeterminate)."""
         interaction_id(request)
-        if require_bearer(request) != consent_id:
+        token = require_bearer(request)
+        caller = fapi_caller(request, f"consent:{consent_id}")
+        if caller is None and token != consent_id:
             raise ApiError(401, "NAO_AUTORIZADO", "Não autorizado", "O token não corresponde ao consentimento.")
         ip_address = required_header(request, "x-fapi-customer-ip-address", 100)
         user_agent = required_header(request, "x-customer-user-agent", 255)
@@ -355,7 +414,7 @@ def create_app(seed: int = 42, customers: int = 5,
             if not isinstance(value, str) or not DATETIME_RE.match(value):
                 raise bad_request("expirationDateTime fora do formato.")
             expiration = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        consent = find_consent(consent_id)
+        consent = owned(find_consent(consent_id), caller)
         now = clock()
         with store.lock:
             if cpf != consent.cpf:
@@ -377,7 +436,7 @@ def create_app(seed: int = 42, customers: int = 5,
     def list_extensions(consent_id: str, request: Request):
         interaction_id(request)
         require_bearer(request)
-        consent = find_consent(consent_id)
+        consent = owned(find_consent(consent_id), fapi_caller(request, "consents"))
         rows = []
         for ext in reversed(consent.extensions):
             row = {"loggedUser": {"document": {"identification": ext.cpf, "rel": "CPF"}},
@@ -493,10 +552,19 @@ def create_app(seed: int = 42, customers: int = 5,
     # --- mock-only ------------------------------------------------------------------------
 
     @app.post("/mock/consents/{consent_id}/authorise")
-    def authorise(consent_id: str):
+    async def authorise(consent_id: str, request: Request):
+        """The customer's approval. The authorisation server sends the CPF of the customer who
+        logged in, which must be the consent's (the walk sends none)."""
         consent = store.get(consent_id, clock())
         if consent is None:
             return JSONResponse({"error": "unknown consent"}, status_code=404)
+        body = await request.body()
+        try:
+            cpf = json.loads(body).get("cpf") if body else None
+        except (ValueError, AttributeError):
+            return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+        if cpf is not None and cpf != consent.cpf:
+            return JSONResponse({"error": "the customer is not the consent's"}, status_code=403)
         with store.lock:
             if consent.status != "AWAITING_AUTHORISATION":
                 return JSONResponse({"error": f"consent is {consent.status}"}, status_code=409)

@@ -17,19 +17,18 @@ VARIANT = {"client_auth_type": "private_key_jwt", "fapi_profile": "openbanking_b
            "fapi_auth_request_method": "pushed", "fapi_response_mode": "plain_response"}
 
 
-STUB = ("stage 1: the stand-in resource server does not check the token, so it cannot refuse one "
-        "that is revoked or not bound to the client's certificate (the transmitter does, from stage 2)")
 PAR_401 = ("Keycloak 26.8.2 answers a client assertion it rejects at the PAR endpoint with 401 and "
            "error invalid_request; RFC 6749 5.2 wants 400 for invalid_request (401 only for invalid_client)")
 AUD_ARRAY = ("Keycloak 26.8.2 accepts only the issuer as the audience of a client assertion (its fix of "
              "CVE-2025-27370, since 26.2); the suite still expects an array to be accepted. Keycloak's "
              "OAuth SIG turns the check off to pass; the realm keeps it on")
+TYP = ("Keycloak 26.8.2 puts typ (\"ID\") in every id_token, and the suite warns on any claim it did not "
+       "ask for. The claims of profile and email, which it warned on too, are only sent when asked for "
+       "(the realm's optional client scopes)")
 # Outcomes of the clean baseline that are expected, with the conditions that must be the only
 # failures (or warnings) of the module and why. Anything else that does not pass is unexpected.
 KNOWN = {
-    "fapi1-advanced-final": ({"EnsureHttpStatusCodeIs4xx"}, STUB),
-    "fapi1-advanced-final-refresh-token": ({"EnsureHttpStatusCodeIs4xx"}, STUB),
-    "fapi1-advanced-final-attempt-reuse-authorisation-code-after-one-second": ({"EnsureHttpStatusCodeIs4xx"}, STUB),
+    "fapi1-advanced-final": ({"EnsureIdTokenDoesNotContainNonRequestedClaims"}, TYP),
     **{f"fapi1-advanced-final-par-ensure-client-assertion-with-{case}-fails":
        ({"CheckParEndpointHttpStatusIs400Allowing401ForInvalidClientError"}, PAR_401)
        for case in ("wrong-aud", "wrong-iss", "wrong-sub", "invalid-signature")},

@@ -16,9 +16,10 @@
 # proxy's labels, and judges the refusals from the client's log alone, with the limits detection
 # report gated (SparkApplication).
 # security: in its own kind cluster, in parallel with platform (it needs none of the lakehouse),
-# deploys the authorisation server (Keycloak, FAPI-BR v2.2.0) with the OpenID conformance suite
-# and runs the suite's Brazil plan against it headless, failing on any module outcome other than
-# the documented ones (make security-deploy conformance).
+# deploys the authorisation server (Keycloak, FAPI-BR v2.2.0), the transmitter as resource server
+# behind its mTLS gateway and the OpenID conformance suite, and runs the suite's Brazil plan
+# against them headless, failing on any module outcome other than the documented ones
+# (make security-deploy conformance).
 name: CI
 
 on:
@@ -168,7 +169,7 @@ jobs:
       - name: Cluster (kind)
         run: make cluster
 
-      - name: Security (Keycloak, OpenID conformance suite's Brazil plan, gated on the known outcomes)
+      - name: Security (Keycloak, transmitter behind the mTLS gateway, conformance suite's Brazil plan, gated)
         run: make security-deploy conformance
 
       # The conformance run's log.

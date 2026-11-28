@@ -220,25 +220,37 @@ security-image: cluster $(OIDF_SCRIPTS)
 security-render: $(BIN)/uv
 	cd services/security && uv run --locked python -m security_tools render $(CURDIR)/$(SECURITY_DIR)
 
-# Keycloak, the conformance suite and the stand-in resource server (infra/k8s/security.yaml). The
-# pods roll only when the realm, the certificates or the nginx configurations change.
+# Keycloak, the conformance suite and the transmitter's mTLS gateway (infra/k8s/security.yaml),
+# and the transmitter's credentials as resource server (Secret transmitter-security in ofb). The
+# pods roll only when the realm, the provider jar, the certificates or the nginx configurations
+# change; the transmitter only when its credentials do.
 define security_object
 kubectl -n security create $(1) --dry-run=client -o yaml | kubectl apply -f -
 endef
-security-deploy: cluster security-render
+security-deploy: cluster security-render transmitter-deploy
 	$(call security_object,secret generic keycloak-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/keycloak.pem \
 	  --from-file=tls.key=$(SECURITY_DIR)/pki/keycloak.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
 	$(call security_object,secret generic conformance-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/conformance.pem \
 	  --from-file=tls.key=$(SECURITY_DIR)/pki/conformance.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
-	$(call security_object,secret generic rs-stub-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/rs-stub.pem \
-	  --from-file=tls.key=$(SECURITY_DIR)/pki/rs-stub.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
+	$(call security_object,secret generic gateway-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/gateway.pem \
+	  --from-file=tls.key=$(SECURITY_DIR)/pki/gateway.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
 	$(call security_object,secret generic keycloak-realm --from-file=ofb-realm.json=$(SECURITY_DIR)/realm.json)
+	$(call security_object,secret generic keycloak-providers --from-file=ofar-scripts.jar=$(SECURITY_DIR)/ofar-scripts.jar)
 	$(call security_object,secret generic conformance-plan --from-file=plan.json=$(SECURITY_DIR)/plan.json)
 	$(call security_object,configmap conformance-nginx --from-file=nginx.conf=infra/security/conformance-nginx.conf)
-	$(call security_object,configmap rs-stub-nginx --from-file=nginx.conf=infra/security/rs-stub.conf)
-	sed "s|ofar/config-id: .*|ofar/config-id: \"$$(cat $(SECURITY_DIR)/realm.json $(SECURITY_DIR)/pki/*.pem \
-	  infra/security/*.conf | sha256sum | cut -c1-12)\"|" infra/k8s/security.yaml | kubectl apply -f -
-	for d in keycloak conformance conformance-mongo rs-stub; do \
+	$(call security_object,configmap gateway-nginx --from-file=nginx.conf=infra/security/gateway.conf)
+	kubectl -n ofb create secret generic transmitter-security --dry-run=client -o yaml \
+	  --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem --from-file=transmitter.pem=$(SECURITY_DIR)/pki/transmitter.pem \
+	  --from-file=transmitter.key=$(SECURITY_DIR)/pki/transmitter.key \
+	  --from-file=transmitter.jwks.json=$(SECURITY_DIR)/pki/transmitter.jwks.json | kubectl apply -f -
+	kubectl -n ofb patch deployment transmitter -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":\
+	{\"ofar/security-id\":\"$$(cat $(SECURITY_DIR)/pki/ca.pem $(SECURITY_DIR)/pki/transmitter.* | sha256sum | cut -c1-12)\"}}}}}"
+	sed "s|ofar/config-id: .*|ofar/config-id: \"$$(cat $(SECURITY_DIR)/realm.json $(SECURITY_DIR)/ofar-scripts.jar \
+	  $(SECURITY_DIR)/pki/*.pem infra/security/*.conf | sha256sum | cut -c1-12)\"|" infra/k8s/security.yaml | kubectl apply -f -
+	kubectl -n security delete deployment/rs-stub service/rs-stub configmap/rs-stub-nginx secret/rs-stub-tls \
+	  --ignore-not-found
+	kubectl -n ofb rollout status deployment/transmitter --timeout=3m
+	for d in keycloak conformance conformance-mongo gateway; do \
 	  kubectl -n security rollout status deployment/$$d --timeout=6m; done
 
 # One run of the conformance suite's Brazil plan against Keycloak (infra/k8s/conformance-run.yaml).

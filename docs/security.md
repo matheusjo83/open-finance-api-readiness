@@ -7,13 +7,14 @@ with extra requirements. It says nothing of FAPI 2.0 or of a date to move to it.
 
 ```bash
 make security-test      # the PKI, the realm and the plan configuration (no cluster)
-make security-deploy    # Keycloak, the conformance suite and the stand-in resource server
-make conformance        # one run of the suite's Brazil plan against Keycloak
+make security-deploy    # Keycloak, the conformance suite, the gateway and the transmitter as resource server
+make conformance        # one run of the suite's Brazil plan against Keycloak and the transmitter
 ```
 
-Stage 1 of 4: Keycloak and the conformance suite in the cluster, the suite run headless against a
-clean Keycloak, and a stand-in resource server. The transmitter becomes the resource server in
-stage 2; the defects come in stage 3 and the detection report in stage 4.
+Stage 2a of 4: Keycloak and the conformance suite in the cluster, the suite run headless against
+a clean Keycloak and the transmitter as resource server, behind an mTLS gateway. Stage 2b moves
+the contract validator's walk to the real flows; the defects come in stage 3 and the detection
+report in stage 4.
 
 ## Components
 
@@ -24,20 +25,24 @@ All in the namespace `security` (`infra/k8s/security.yaml`).
 | `keycloak` | The authorisation server: realm `ofb`, HTTPS only, the client certificate requested, H2 in the pod (the realm is imported at every start) | `quay.io/keycloak/keycloak:26.8.2` by digest (Apache-2.0) |
 | `conformance` | The OpenID conformance suite's server in dev mode (no login), behind an nginx TLS front as in its own docker-compose.yml | `registry.gitlab.com/openid/conformance-suite:release-v5.3.5` and its nginx, by digest (MIT) |
 | `conformance-mongo` | The suite's database | `mongo:6.0.13` by digest |
-| `rs-stub` | Stage 1 only: an nginx that answers the suite's consent and accounts calls (`infra/security/rs-stub.conf`) | the suite's nginx image |
+| `gateway` | The transmitter's mTLS gateway: TLS as v2.2.0 6.4, the client certificate verified against our CA and forwarded to the transmitter (`infra/security/gateway.conf`); only `/open-banking/` | the suite's nginx image |
+| `transmitter` (namespace `ofb`) | The resource server ([below](#the-transmitter-as-resource-server)); its credentials for Keycloak in the Secret `transmitter-security` | `ofar/transmitter:local` |
 | Job `conformance-run` | The suite's own `scripts/run-test-plan.py`, headless, then every module's outcome from the suite's API | `ofar/security-tools:local`; the three scripts by commit `246b2c1` and SHA-256 |
 
 `services/security` (`security_tools`) makes what the pods read, into `.cache/security`, and
 `make security-deploy` puts it in Secrets; no key is committed:
 
 - **PKI** (`pki.py`): a CA of our own; TLS certificates for the three Services
-  (`<name>.security.svc`); two clients, each with an mTLS certificate whose subject carries the
+  (`<name>.security.svc`); the transmitter's mTLS certificate and signing key for its calls to
+  Keycloak; two clients, each with an mTLS certificate whose subject carries the
   organisation id (OU) and the software statement id (UID), as the Brazilian certificate
   standard does, and a signing (PS256) and an encryption (RSA-OAEP) key. The ids are stable
   (`uuid5`); the keys are made once and kept until `.cache/security/pki` is deleted. Real
   certificates come from ICP-Brasil through the Directory; there is no Directory here.
 - **Realm** (`realm.py`): adapted from the Open Finance Brasil realm of Keycloak's OAuth SIG
   (keycloak/kc-sig-fapi, Apache-2.0), which passes the suite's Brazil plan.
+- **Provider jar** (`providers.py`): the script mapper `infra/security/authorise-consent.js` and
+  its descriptor, the way Keycloak's `scripts` feature takes them (a jar is a zip; no Java).
 - **Plan configuration** (`suite.py`): the two clients, their certificates, the resource URLs and
   the browser automation that logs the test users in.
 
@@ -59,8 +64,38 @@ All in the namespace `security` (`infra/k8s/security.yaml`).
 | Dynamic scope `consent:<id>` (7) | a parameterized client scope (Keycloak feature `parameterized-scopes`, called `dynamic-scopes` before 26.7) |
 | Product scopes in the discovery document (item 23) | one client scope each |
 
+| No customer data in the id_token unless asked for | `profile` and `email` are optional client scopes, not default |
+
 All of the realm's clients fall under one client policy: Keycloak's `fapi-1-advanced` profile
 plus ours (PKCE, no rotation). `make security-test` checks each row above.
+
+## The transmitter as resource server
+
+Requests through the gateway carry the certificate nginx verified and the gateway's marker
+(`services/transmitter/src/transmitter/security.py`). For those the transmitter is a FAPI-BR
+resource server; every refusal is in the specs' error envelope:
+
+| Check | Refused with |
+|---|---|
+| A bearer token, a JWT signed with PS256 by a key of Keycloak's JWKS, issued by the realm, with the transmitter (`ofar-transmitter`) in `aud`, not expired | 401 |
+| Bound to the certificate of the request: `cnf.x5t#S256` (RFC 8705 3.1) | 401 |
+| Still active at Keycloak (token introspection, RFC 7662, private_key_jwt over mTLS): a token Keycloak revoked, as after a reused authorisation code, is refused at once | 401 |
+| Consents endpoints: scope `consents`; a client sees only the consents it created | 403 |
+| Accounts: scope `accounts` and `consent:<id>` naming an AUTHORISED consent of the same client; revoking the consent ends its tokens | 403 (scope), 401 (consent) |
+| Renewal (`POST .../extends`): `consent:<id>` of the consent in the path | 403 |
+
+The origin of the limits is the organisation id of the certificate (its OU), not the
+`x-mock-client-org-id` stand-in. Requests that do not come through the gateway keep the stand-ins
+of [transmitter.md](transmitter.md) until the walk moves to the real flows (stage 2b).
+
+**How a consent is approved.** In Open Finance the customer approves at the transmitter; here the
+authorisation server is Keycloak, and approving inside it would need a Java extension of ours. A
+script mapper on the client scope `consent` (`infra/security/authorise-consent.js`, feature
+`scripts`) calls the transmitter's stand-in `POST /mock/consents/<id>/authorise` with the CPF of the
+customer who logged in when Keycloak issues a customer's access token for `consent:<id>`: after the
+login and the grant screen, so a customer who rejects leaves the consent awaiting. The transmitter
+approves only a consent of that CPF that is still awaiting. Client credentials tokens are left
+alone.
 
 ## The conformance run
 
@@ -72,8 +107,12 @@ client registration is not tested (it needs the Directory; Keycloak was certifie
 Before each authorisation the suite gets a `client_credentials` token (scope `consents`), creates
 a consent at `consentUrl`, adds `consent:<consentId>` to the scope, pushes the request (PAR) and
 lets its browser automation (HtmlUnit, inside the suite) log in: `customer1` approves,
-`customer2` rejects (module `user-rejects-authentication`). It then calls `resourceUrl` with the
-access token over mTLS.
+`customer2` rejects (module `user-rejects-authentication`). Keycloak approves the consent at the
+transmitter as it issues the token (above). The suite then calls `resourceUrl` with the access
+token over mTLS, through the gateway, and tries tokens the transmitter must refuse: client1's
+token with client2's certificate, a token whose authorisation code was reused. The consents are
+for a synthetic CPF that is not one of the transmitter's customers, so the accounts list is empty
+(the suite only needs a 200).
 
 The runner runs the modules one at a time (the configuration has an alias, so they share the
 callback) and, by default, gives up after three in a row that do not complete; the Job lifts that
@@ -105,13 +144,15 @@ text on that page. The module stays REVIEW: the image is evidence for a reviewer
 
 ### The clean baseline
 
-2026-11-27, kind on a laptop: the 67 modules of the plan in 158 seconds (the expired request_uri
-module alone waits its 120 s).
+2026-11-27, kind on a laptop, stage 2a: the 67 modules of the plan in 175 seconds (the expired
+request_uri module alone waits its 120 s). Stage 1, with a stand-in resource server that checked
+nothing, had 54 passed and 8 known: the three modules that call the resource server with a token
+it must refuse pass now.
 
 | Outcome | Modules |
 |---|---|
-| passed | 54 |
-| known | 8 |
+| passed | 56 |
+| known | 6 |
 | review | 4 (with evidence: the four error pages above) |
 | skipped | 1 (`ensure-mtls-holder-of-key-required-at-non-alias-token-endpoint`: Keycloak has no mTLS aliases) |
 | unexpected | 0 |
@@ -122,10 +163,10 @@ The known outcomes (`suite.KNOWN`), each tied to the conditions that must be its
 |---|---|---|
 | `par-ensure-client-assertion-with-{wrong-aud,wrong-iss,wrong-sub,invalid-signature}-fails` (4) | `CheckParEndpointHttpStatusIs400Allowing401ForInvalidClientError` | Keycloak 26.8.2 answers a client assertion it rejects at the PAR endpoint with 401 and `invalid_request`; RFC 6749 5.2 wants 400 for `invalid_request` (401 only for `invalid_client`) |
 | `test-array-as-audience-for-client-JWT-assertion` | `CheckPAREndpointResponse201WithNoError` | Keycloak accepts only the issuer as a client assertion's audience (its fix of CVE-2025-27370, since 26.2); the suite still expects an array to be accepted. Keycloak's OAuth SIG turns the check off to pass; the realm keeps it on |
-| `fapi1-advanced-final`, `refresh-token`, `attempt-reuse-authorisation-code-after-one-second` | `EnsureHttpStatusCodeIs4xx` | Stage 1: the stand-in resource server does not check the token, so it cannot refuse one that is revoked or not bound to the client's certificate. These become the transmitter's to pass in stage 2 |
+| `fapi1-advanced-final` (a warning) | `EnsureIdTokenDoesNotContainNonRequestedClaims` | Keycloak 26.8.2 puts `typ` in every id_token, and the suite warns on any claim it did not ask for. The claims of `profile` and `email`, which it warned on too, are sent only when asked for now |
 
 Building it found, besides the findings below: the resource server's TLS is checked too (the
-stand-in got the v2.2.0 ciphers), the bearer scheme in any case (RFC 6750), and two of the SIG's
+gateway has the v2.2.0 ciphers), the bearer scheme in any case (RFC 6750), and two of the SIG's
 browser overrides that left the suite waiting for a visit; those modules use `match-limit` now
 (the first visit logs in or only opens the page, the second ends on the error page).
 
@@ -149,5 +190,13 @@ checks job.
   `invalid_request`** (4 modules, above): a nonconformance of the authorisation server itself.
 - **The suite's server will not start without login providers**, even in dev mode, which never
   uses them; the Deployment sets the placeholders of the suite's docker-compose.yml.
+- **Keycloak 26.8.2 introspects a token only for a client in its audience** (`Client ... is not
+  in the token audience`): the receivers' clients put the transmitter in `aud` (an audience
+  mapper, access token only), and the transmitter checks it.
+- **The id_token carried the customer's name and e-mail unasked** (the default client scopes
+  `profile` and `email`); in stage 1 the warning hid under the module's failure. They are
+  optional scopes now.
+- **Keycloak's script mappers have no `LOG`** (authenticators have): the script takes a JBoss
+  logger. A script that throws is logged and the token is still issued.
 - **GitLab refuses curl on its raw URLs**: the runner's scripts come through GitLab's files API, by
   commit and SHA-256.
