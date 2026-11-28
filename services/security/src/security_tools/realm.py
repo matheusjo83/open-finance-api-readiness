@@ -11,16 +11,23 @@ Apache-2.0), which passes the OpenID conformance suite's Brazil plan. Changes: o
 clients; PAR required and PS256 access tokens; A256GCM as v2.2.0 section 6.3 says (the SIG uses
 A128GCM); a parameterized consent scope instead of the fixed `consent:1`; the defaults of a new
 26.8.2 realm for the built-in scopes.
+
+The consent scope carries a script mapper (providers.py, infra/security/authorise-consent.js)
+that approves the consent at the transmitter when a customer's token is issued for it. The
+transmitter, as resource server, has a client of its own for token introspection.
 """
 
 import copy
 import json
 from pathlib import Path
 
+from . import providers
+
 REALM = "ofb"
 ALIAS = "ofar"  # the suite's alias: its callback is <suite>/test/a/<alias>/callback
 LOA2 = "urn:brasil:openbanking:loa2"
 LOA3 = "urn:brasil:openbanking:loa3"
+RESOURCE_SERVER_CLIENT = "ofar-transmitter"
 ACCESS_TOKEN_SECONDS = 300
 PAR_REQUEST_URI_SECONDS = 120
 # Test users of the browser automation: the first approves, the second rejects (suite module
@@ -83,18 +90,65 @@ def client(entry: dict, suite_base: str) -> dict:
             "acr.loa.map": json.dumps({LOA2: "1"}),
             "default.acr.values": LOA2,
         },
-        "defaultClientScopes": ["basic", "acr", "profile", "email", "roles", "web-origins"],
-        "optionalClientScopes": ["offline_access", "consent", *PRODUCT_SCOPES],
+        # The transmitter in the access token's audience: Keycloak introspects a token only for a
+        # client in it, and the transmitter checks it. Not in the id_token (the suite checks it
+        # for claims it did not ask for).
+        "protocolMappers": [{
+            "name": "transmitter audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+            "config": {"included.client.audience": RESOURCE_SERVER_CLIENT, "access.token.claim": "true",
+                       "id.token.claim": "false", "introspection.token.claim": "true"},
+        }],
+        # profile and email only when asked for: the id_token carries no customer data the
+        # receiver did not request (the suite warns on any such claim).
+        "defaultClientScopes": ["basic", "acr", "roles", "web-origins"],
+        "optionalClientScopes": ["offline_access", "profile", "email", "consent", *PRODUCT_SCOPES],
     }
 
 
-def build(manifest: dict, suite_base: str, default_scopes: Path = DEFAULT_SCOPES) -> dict:
+def resource_server(entry: dict) -> dict:
+    """The transmitter's client: it only introspects tokens (private_key_jwt over mTLS, as the
+    realm's client policy wants of every client); no flow of its own."""
+    return {
+        "clientId": entry["client_id"],
+        "name": "Transmitter (resource server)",
+        "enabled": True,
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "standardFlowEnabled": False,
+        "implicitFlowEnabled": False,
+        "directAccessGrantsEnabled": False,
+        "serviceAccountsEnabled": False,
+        "fullScopeAllowed": False,
+        "clientAuthenticatorType": "client-jwt",
+        "attributes": {
+            "use.jwks.string": "true",
+            "jwks.string": json.dumps(entry["public_jwks"]),
+            "token.endpoint.auth.signing.alg": "PS256",
+            "tls.client.certificate.bound.access.tokens": "true",
+        },
+    }
+
+
+def consent_scope() -> dict:
+    # consent:<Consent Resource Id> (v2.2.0 section 7): a parameterized scope (Keycloak feature
+    # parameterized-scopes, called dynamic-scopes before 26.7) of type string, any value.
+    scope = _scope("consent", **{"is.parameterized.scope": "true", "parameterized.scope.type": "string"})
+    scope["protocolMappers"] = [{
+        "name": "authorise consent at the transmitter",
+        "protocol": "openid-connect",
+        "protocolMapper": providers.MAPPER_ID,
+        "config": {"access.token.claim": "true", "id.token.claim": "false", "userinfo.token.claim": "false",
+                   "introspection.token.claim": "false", "claim.name": "", "jsonType.label": "String"},
+    }]
+    return scope
+
+
+def build(manifest: dict, suite_base: str, cpf: str, default_scopes: Path = DEFAULT_SCOPES) -> dict:
+    """`cpf`: the customers' CPF (attribute `cpf`), which the consents the suite creates name."""
     defaults = json.loads(default_scopes.read_text())
     scopes = copy.deepcopy(defaults["clientScopes"])
     scopes += [_scope(name) for name in PRODUCT_SCOPES]
-    # consent:<Consent Resource Id> (v2.2.0 section 7): a parameterized scope (Keycloak feature
-    # parameterized-scopes, called dynamic-scopes before 26.7) of type string, any value.
-    scopes.append(_scope("consent", **{"is.parameterized.scope": "true", "parameterized.scope.type": "string"}))
+    scopes.append(consent_scope())
     return {
         "realm": REALM,
         "enabled": True,
@@ -113,9 +167,10 @@ def build(manifest: dict, suite_base: str, default_scopes: Path = DEFAULT_SCOPES
         "clientScopes": scopes,
         "defaultDefaultClientScopes": defaults["defaultDefaultClientScopes"],
         "defaultOptionalClientScopes": defaults["defaultOptionalClientScopes"],
-        "clients": [client(entry, suite_base) for entry in manifest["clients"].values()],
+        "clients": [*(client(entry, suite_base) for entry in manifest["clients"].values()),
+                    resource_server(manifest["resource_server"])],
         "users": [{"username": u, "enabled": True, "email": f"{u}@example.com", "emailVerified": True,
-                   "firstName": u, "lastName": "OFAR",
+                   "firstName": u, "lastName": "OFAR", "attributes": {"cpf": [cpf]},
                    "credentials": [{"type": "password", "value": p, "temporary": False}]}
                   for u, p in USERS.items()],
         "components": {"org.keycloak.keys.KeyProvider": [

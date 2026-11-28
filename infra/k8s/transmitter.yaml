@@ -1,5 +1,8 @@
 # Synthetic Open Finance transmitter (services/transmitter): Consents 3.3.1 and Accounts 2.4.2
-# over a seeded dataset. In-cluster URL: http://transmitter.ofb.svc
+# over a seeded dataset. In-cluster URL: http://transmitter.ofb.svc; as FAPI-BR resource server,
+# https://gateway.security.svc (infra/k8s/security.yaml). The Secret transmitter-security (made by
+# make security-deploy, which then restarts the pod) holds its credentials for Keycloak; without
+# it, requests through the gateway are refused and the stand-ins work as before.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +33,12 @@ spec:
           env:
             - { name: TRANSMITTER_SEED, value: "42" }
             - { name: TRANSMITTER_CUSTOMERS, value: "5" }
+            - { name: TRANSMITTER_ISSUER, value: "https://keycloak.security.svc/realms/ofb" }
+            - { name: TRANSMITTER_CLIENT_ID, value: ofar-transmitter }
+            - { name: TRANSMITTER_SECURITY_DIR, value: /security }
+            # The scheme of the self links from the gateway's X-Forwarded-Proto (uvicorn trusts only
+            # 127.0.0.1 by default; the Service is in-cluster only).
+            - { name: FORWARDED_ALLOW_IPS, value: "*" }
           ports:
             - { name: http, containerPort: 8080 }
           readinessProbe:
@@ -42,6 +51,11 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: security, mountPath: /security, readOnly: true }
+      volumes:
+        - name: security
+          secret: { secretName: transmitter-security, optional: true }
 ---
 apiVersion: v1
 kind: Service

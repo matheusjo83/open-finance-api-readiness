@@ -5,6 +5,7 @@ description = "Synthetic Open Finance Brasil transmitter: Consents 3.3.1 and Acc
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "fastapi",
+    "pyjwt[crypto]",
     "uvicorn",
 ]
 

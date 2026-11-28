@@ -1,5 +1,6 @@
-"""python -m security_tools render <dir>: the PKI (made once, kept), the realm and the suite's
-plan configuration, for the in-cluster names of infra/k8s/security.yaml.
+"""python -m security_tools render <dir>: the PKI (made once, kept while it has what this
+version needs), the realm, Keycloak's provider jar and the suite's plan configuration, for the
+in-cluster names of infra/k8s/security.yaml.
 python -m security_tools run <plan> <config> <export-dir>: the conformance suite's
 run-test-plan.py over one plan, timed (in the image, infra/k8s/conformance-run.yaml)."""
 
@@ -11,20 +12,26 @@ import sys
 import time
 from pathlib import Path
 
-from . import evidence, pki, realm, results, suite
+from . import evidence, pki, providers, realm, results, suite
 
 ISSUER = f"https://keycloak.{pki.NAMESPACE}.svc/realms/{realm.REALM}"
 SUITE_BASE = f"https://conformance.{pki.NAMESPACE}.svc"
-RESOURCE_BASE = f"https://rs-stub.{pki.NAMESPACE}.svc"
-# A synthetic CPF with valid check digits (the stub does not look at it).
+# The transmitter's mTLS gateway (infra/security/gateway.conf).
+RESOURCE_BASE = f"https://gateway.{pki.NAMESPACE}.svc"
+# A synthetic CPF with valid check digits: the test users' and the consents the suite creates.
+# Not one of the transmitter's seeded customers, so the accounts list is empty (the suite only
+# needs a 200).
 CPF = "76109277673"
 
 
 def render(out: Path) -> None:
     tls = out / "pki"
     manifest_file = tls / "manifest.json"
-    manifest = json.loads(manifest_file.read_text()) if manifest_file.exists() else pki.build(tls)
-    (out / "realm.json").write_text(json.dumps(realm.build(manifest, SUITE_BASE), indent=1))
+    manifest = json.loads(manifest_file.read_text()) if manifest_file.exists() else None
+    if manifest is None or not pki.current(manifest):
+        manifest = pki.build(tls)
+    (out / "realm.json").write_text(json.dumps(realm.build(manifest, SUITE_BASE, CPF), indent=1))
+    providers.build(out)
     (out / "plan.json").write_text(json.dumps(
         suite.build(manifest, tls, issuer=ISSUER, suite_base=SUITE_BASE, resource_base=RESOURCE_BASE, cpf=CPF),
         indent=1))

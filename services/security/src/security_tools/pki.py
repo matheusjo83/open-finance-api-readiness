@@ -1,5 +1,7 @@
-"""The local PKI of the security layer: a CA of our own, the servers' TLS certificates and two
-clients, each with an mTLS certificate and a signing and an encryption key.
+"""The local PKI of the security layer: a CA of our own, the servers' TLS certificates, two
+clients, each with an mTLS certificate and a signing and an encryption key, and the
+transmitter as resource server, with an mTLS certificate and a signing key for its calls to the
+authorisation server (token introspection).
 
 Real Open Finance certificates come from ICP-Brasil through the Directory; here every key is
 made on the spot, kept in .cache/ and in Kubernetes Secrets, and never committed. The client
@@ -20,9 +22,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 NAMESPACE = "security"
-# The servers, by their in-cluster Service name.
-SERVERS = ("keycloak", "conformance", "rs-stub")
+# The servers, by their in-cluster Service name (gateway: the transmitter's mTLS gateway).
+SERVERS = ("keycloak", "conformance", "gateway")
 CLIENTS = ("client1", "client2")
+RESOURCE_SERVER = "transmitter"
 # Stable ids, so a client's identity does not change when its keys are made again.
 ID_NAMESPACE = uuid.UUID("6f1d3c55-8a0e-4f1b-9a52-3c1d2b7e9f10")
 VALIDITY = datetime.timedelta(days=30)
@@ -143,5 +146,27 @@ def build(out: Path, now: datetime.datetime | None = None) -> dict:
             "cert": f"{name}.pem", "key": f"{name}.key", "jwks": f"{name}.jwks.json",
             "public_jwks": {"keys": [jwk(k, kid, use, alg, private=False) for k, kid, use, alg in keys]},
         }
+    # The resource server: a client of Keycloak's introspection endpoint (private_key_jwt, mTLS).
+    rs = Client(RESOURCE_SERVER)
+    tls_key, sig_key = _key(), _key()
+    subject = x509.Name([x509.NameAttribute(NameOID.COUNTRY_NAME, "BR"),
+                         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "OFAR transmitter"),
+                         x509.NameAttribute(NameOID.COMMON_NAME, rs.client_id)])
+    cert = _issue(subject, tls_key, ca_cert, ca_key, now, client=True)
+    name = RESOURCE_SERVER
+    (out / f"{name}.pem").write_bytes(_pem_cert(cert))
+    (out / f"{name}.key").write_bytes(_pem_key(tls_key))
+    (out / f"{name}.jwks.json").write_text(json.dumps(
+        {"keys": [jwk(sig_key, f"{name}-sig", "sig", "PS256", private=True)]}, indent=1))
+    manifest["resource_server"] = {
+        "client_id": rs.client_id, "cert": f"{name}.pem", "key": f"{name}.key", "jwks": f"{name}.jwks.json",
+        "public_jwks": {"keys": [jwk(sig_key, f"{name}-sig", "sig", "PS256", private=False)]},
+    }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     return manifest
+
+
+def current(manifest: dict) -> bool:
+    """Whether a kept PKI has every server and client this version needs."""
+    return (set(manifest.get("servers", {})) == set(SERVERS) and set(manifest.get("clients", {})) == set(CLIENTS)
+            and "resource_server" in manifest)

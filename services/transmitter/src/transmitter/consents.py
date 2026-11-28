@@ -2,7 +2,8 @@
 
 Transitions, applied lazily whenever a consent is read:
 - POST creates AWAITING_AUTHORISATION;
-- the customer's approval at the transmitter (mock endpoint) moves it to AUTHORISED;
+- the customer's approval at the transmitter (mock endpoint, called by the authorisation server
+  when it issues a token for the consent, or by the walk) moves it to AUTHORISED;
 - AWAITING_AUTHORISATION for more than 60 minutes becomes REJECTED (ASPSP, CONSENT_EXPIRED);
 - AUTHORISED past expirationDateTime becomes REJECTED (ASPSP, CONSENT_MAX_DATE_REACHED);
 - DELETE moves AWAITING_AUTHORISATION or AUTHORISED to REJECTED (USER, CUSTOMER_MANUALLY_REVOKED,
@@ -64,6 +65,8 @@ class Consent:
     rejection: Rejection | None = None
     linked: bool | None = None
     extensions: list[Extension] = field(default_factory=list)
+    # The receiver's client that created it (through the gateway); None for the stand-ins.
+    client_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.status_updated is None:
@@ -97,10 +100,11 @@ class ConsentStore:
             return consent
 
     def create(self, cpf: str, cnpj: str | None, permissions: list[str], expiration: datetime | None,
-               linked: bool | None, now: datetime) -> Consent:
+               linked: bool | None, now: datetime, client_id: str | None = None) -> Consent:
         return self.add(Consent(
             consent_id=f"urn:transmitter:{uuid.uuid4()}",
             cpf=cpf, cnpj=cnpj, permissions=permissions, created=now, expiration=expiration, linked=linked,
+            client_id=client_id,
         ))
 
 

@@ -60,7 +60,8 @@ in the walk).
 
 - [ ] **19. FAPI-BR** ([security.md](security.md)): the transmitter's authorisation server and its detection.
   - [x] Stage 1: a PKI of our own, Keycloak 26.8.2 with a realm set for FAPI-BR v2.2.0, the OpenID conformance suite's Brazil plan headless against it with a stand-in resource server, gated on the known outcomes in CI. Clean baseline: 54 of 67 modules passed, 8 known (5 of Keycloak itself), 4 for review with evidence, none unexpected, in 158 s.
-  - [ ] Stage 2: the transmitter as resource server behind an mTLS gateway (token signature, `cnf.x5t#S256`, `consent:<id>` against the path, status, revocation), the organisation id from the certificate instead of `x-mock-client-org-id`, the walk with real flows, the proxy's draw keyed on the consent instead of the bearer.
+  - [x] Stage 2a: the transmitter as resource server behind an mTLS gateway (token signature, audience, `cnf.x5t#S256`, introspection, `consent:<id>`, the client's own consents, revocation), the organisation id from the certificate instead of `x-mock-client-org-id`, the consent approved by a Keycloak script mapper as the token is issued. Clean baseline: 56 of 67 passed, 6 known (all of Keycloak), 4 for review, none unexpected, in 175 s.
+  - [ ] Stage 2b: the walk with real flows (client_credentials, PAR, PKCE, the scripted login, the id_token decrypted) through the gateway, the proxy's draw keyed on the consent instead of the bearer, and the stand-ins of the bearer and the origin removed.
   - [ ] Stage 3: defect variants of the realm (PAR or PKCE optional, RS256, long tokens, refresh rotation, unencrypted id_token, reusable request_uri) and of the resource server (unbound, another consent's or expired tokens accepted), labelled.
   - [ ] Stage 4: the detection report per variant against the baseline, gated, and a campaign.
 

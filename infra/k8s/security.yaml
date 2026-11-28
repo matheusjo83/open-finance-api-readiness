@@ -1,12 +1,15 @@
 # Security layer (FAPI-BR, backlog item 19): the transmitter's authorisation server (Keycloak),
-# the OpenID conformance suite that tests it, and, in stage 1, a stand-in resource server.
+# the OpenID conformance suite that tests it, and the transmitter's mTLS gateway (the transmitter
+# itself, the resource server, is in the namespace ofb: infra/k8s/transmitter.yaml).
 # Certificates, the realm and the suite's plan configuration come from Secrets made by
 # make security-deploy (services/security; nothing secret is committed).
 # The images are multi-platform indexes, pulled by digest from their registries: kind cannot
 # load those from the local image store (decision 46). The namespace is in namespaces.yaml.
 # Keycloak 26.8.2 with the realm of services/security (realm ofb), HTTPS only, the client
 # certificate requested (mTLS for certificate-bound tokens), H2 in the pod: the realm is imported
-# at every start, so a restart is a fresh authorisation server.
+# at every start, so a restart is a fresh authorisation server. Our provider jar (the script mapper
+# that approves a consent at the transmitter) is in /opt/keycloak/providers; with a new provider
+# `start` rebuilds Keycloak first.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,8 +34,8 @@ spec:
             - start
             - --import-realm
             - --db=dev-file
-            # consent:<id> (called dynamic-scopes before 26.7).
-            - --features=parameterized-scopes
+            # consent:<id> (called dynamic-scopes before 26.7); scripts: our provider jar.
+            - --features=parameterized-scopes,scripts
             - --hostname=https://keycloak.security.svc
             - --http-enabled=false
             - --https-port=8443
@@ -60,11 +63,14 @@ spec:
           volumeMounts:
             - { name: tls, mountPath: /tls, readOnly: true }
             - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+            - { name: providers, mountPath: /opt/keycloak/providers, readOnly: true }
       volumes:
         - name: tls
           secret: { secretName: keycloak-tls }
         - name: realm
           secret: { secretName: keycloak-realm }
+        - name: providers
+          secret: { secretName: keycloak-providers }
 ---
 apiVersion: v1
 kind: Service
@@ -186,20 +192,21 @@ spec:
   ports:
     - { name: mongo, port: 27017, targetPort: mongo }
 ---
-# Stage 1 stand-in for the resource server (infra/security/rs-stub.conf).
+# The transmitter's mTLS gateway (infra/security/gateway.conf): https://gateway.security.svc in
+# front of http://transmitter.ofb.svc.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rs-stub
+  name: gateway
   namespace: security
-  labels: { app: rs-stub }
+  labels: { app: gateway }
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: rs-stub }
+    matchLabels: { app: gateway }
   template:
     metadata:
-      labels: { app: rs-stub }
+      labels: { app: gateway }
       annotations:
         ofar/config-id: unset
     spec:
@@ -219,16 +226,16 @@ spec:
             - { name: nginx, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
       volumes:
         - name: tls
-          secret: { secretName: rs-stub-tls }
+          secret: { secretName: gateway-tls }
         - name: nginx
-          configMap: { name: rs-stub-nginx }
+          configMap: { name: gateway-nginx }
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: rs-stub
+  name: gateway
   namespace: security
 spec:
-  selector: { app: rs-stub }
+  selector: { app: gateway }
   ports:
     - { name: https, port: 443, targetPort: https }

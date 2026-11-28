@@ -8,8 +8,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from security_tools import pki, realm, suite
-from security_tools.__main__ import ISSUER, RESOURCE_BASE, SUITE_BASE, render
+from security_tools import pki, providers, realm, suite
+from security_tools.__main__ import CPF, ISSUER, RESOURCE_BASE, SUITE_BASE, render
 
 SUITE = "https://conformance.security.svc"
 
@@ -28,7 +28,8 @@ def cert(path):
 def test_every_certificate_is_signed_by_the_ca(built):
     out, manifest = built
     ca = cert(out / "pki/ca.pem")
-    names = [s["cert"] for s in manifest["servers"].values()] + [c["cert"] for c in manifest["clients"].values()]
+    names = ([s["cert"] for s in manifest["servers"].values()] + [c["cert"] for c in manifest["clients"].values()]
+             + [manifest["resource_server"]["cert"]])
     for name in names:
         c = cert(out / "pki" / name)
         c.verify_directly_issued_by(ca)
@@ -94,14 +95,37 @@ def test_the_pki_is_kept_when_rendered_again(built, tmp_path):
     assert (out / "pki/client1.pem").read_bytes() == before
 
 
+def test_a_kept_pki_without_the_resource_server_is_made_again(built, tmp_path):
+    out, manifest = built
+    old = {k: v for k, v in manifest.items() if k != "resource_server"}
+    (tmp_path / "pki").mkdir()
+    (tmp_path / "pki/manifest.json").write_text(json.dumps(old))
+    render(tmp_path)
+    assert pki.current(json.loads((tmp_path / "pki/manifest.json").read_text()))
+
+
+def test_the_resource_server_has_a_client_certificate_and_a_signing_key(built):
+    out, manifest = built
+    entry = manifest["resource_server"]
+    eku = cert(out / "pki" / entry["cert"]).extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+    assert ExtendedKeyUsageOID.CLIENT_AUTH in eku
+    keys = json.loads((out / "pki" / entry["jwks"]).read_text())["keys"]
+    assert [(k["use"], k["alg"]) for k in keys] == [("sig", "PS256")] and "d" in keys[0]
+    assert all("d" not in k for k in entry["public_jwks"]["keys"])
+
+
 def realm_of(built):
-    return realm.build(built[1], SUITE)
+    return realm.build(built[1], SUITE, CPF)
+
+
+def receivers(r):
+    return [c for c in r["clients"] if c["clientId"] != "ofar-transmitter"]
 
 
 def test_every_client_follows_fapi_br(built):
     r = realm_of(built)
-    assert len(r["clients"]) == 2
-    for c in r["clients"]:
+    assert len(receivers(r)) == 2
+    for c in receivers(r):
         a = c["attributes"]
         assert c["clientAuthenticatorType"] == "client-jwt"                  # private_key_jwt (5.1 item 2)
         assert a["require.pushed.authorization.requests"] == "true"         # PAR (5.1 item 3)
@@ -114,6 +138,8 @@ def test_every_client_follows_fapi_br(built):
         assert json.loads(a["acr.loa.map"]) == {realm.LOA2: "1"}             # loa2 (5.1 item 6)
         assert c["implicitFlowEnabled"]                                      # code id_token (5.1 item 12)
         assert "consent" in c["optionalClientScopes"]
+        # No customer data in the id_token unless asked for.
+        assert not {"profile", "email"} & set(c["defaultClientScopes"])
         assert all(u.startswith(f"{SUITE}/test/a/{realm.ALIAS}/callback") for u in c["redirectUris"])
         jwks = json.loads(a["jwks.string"])["keys"]
         assert jwks and all("d" not in k for k in jwks)
@@ -133,6 +159,39 @@ def test_the_realm_follows_fapi_br(built):
     names = {s["name"] for s in r["clientScopes"]}
     assert {"basic", "acr", "profile"} <= names       # Keycloak's own defaults kept
     assert set(realm.PRODUCT_SCOPES) <= names                                # 5.1 item 23
+
+
+def test_the_consent_scope_approves_the_consent_at_the_transmitter(built, tmp_path):
+    r = realm_of(built)
+    consent = next(s for s in r["clientScopes"] if s["name"] == "consent")
+    (mapper,) = consent["protocolMappers"]
+    assert mapper["protocolMapper"] == providers.MAPPER_ID == "script-authorise-consent.js"
+    # On the access token only: the suite checks the id_token for claims it did not ask for.
+    assert mapper["config"]["access.token.claim"] == "true" and mapper["config"]["id.token.claim"] == "false"
+    assert all(u["attributes"]["cpf"] == [CPF] for u in r["users"])
+    import zipfile
+    jar = zipfile.ZipFile(providers.build(tmp_path))
+    descriptor = json.loads(jar.read("META-INF/keycloak-scripts.json"))
+    assert descriptor["mappers"][0]["fileName"] == providers.FILE_NAME
+    script = jar.read(providers.FILE_NAME).decode()
+    assert "/mock/consents/" in script and "getServiceAccountClientLink" in script
+    # The same script gives the same jar (the pod rolls only on a change).
+    assert providers.build(tmp_path).read_bytes() == providers.build(tmp_path).read_bytes()
+
+
+def test_the_resource_server_only_introspects(built):
+    r = realm_of(built)
+    assert built[1]["resource_server"]["client_id"] == realm.RESOURCE_SERVER_CLIENT
+    rs = next(c for c in r["clients"] if c["clientId"] == realm.RESOURCE_SERVER_CLIENT)
+    # Every receiver's access tokens name the transmitter as audience (Keycloak introspects them
+    # only for a client in it), and their id_tokens do not.
+    for c in receivers(r):
+        (aud,) = c["protocolMappers"]
+        assert aud["config"]["included.client.audience"] == realm.RESOURCE_SERVER_CLIENT
+        assert (aud["config"]["access.token.claim"], aud["config"]["id.token.claim"]) == ("true", "false")
+    assert rs["clientAuthenticatorType"] == "client-jwt"
+    assert not any(rs[k] for k in ("standardFlowEnabled", "implicitFlowEnabled", "directAccessGrantsEnabled",
+                                   "serviceAccountsEnabled", "publicClient"))
 
 
 def test_the_suite_plan_is_the_open_finance_one():
@@ -252,6 +311,7 @@ def test_summary_lists_what_breaks_the_gate():
 
 def test_every_known_failure_names_its_conditions_and_reason():
     from security_tools import suite
-    assert len(suite.KNOWN) == 8
+    # Stage 2: the transmitter refuses unbound and revoked tokens, so only Keycloak's own remain.
+    assert len(suite.KNOWN) == 6
     for module, (conditions, reason) in suite.KNOWN.items():
         assert module.startswith("fapi1-advanced-final") and conditions and len(reason) > 40
