@@ -273,6 +273,27 @@ def test_evidence_skips_a_first_visit_that_ended_at_the_callback():
     assert response["response_status_code"] == 400
 
 
+def test_evidence_waits_past_a_page_the_server_answered_with_success():
+    # A long nonce, a request_uri used again before the first login completed: the server may
+    # accept the request and show its login page (200). The browser logs in and goes on; filling
+    # the placeholder there would end the module and the callback would interrupt it.
+    from security_tools import evidence
+    login = {"src": "WebRunner", "msg": "Scripted browser HTTP response", "response_status_code": 200,
+             "response_content": "<html><body>Sign in to your account</body></html>"}
+    on_server = {"src": "WebRunner", "msg": "Completed processing of webpage",
+                 "url": "https://keycloak.security.svc/realms/ofb/protocol/openid-connect/auth?x"}
+    log = [{"result": "REVIEW", "src": "ExpectLoginPage", "upload": "ph1"}, login, on_server]
+    assert evidence.pending(log) == []
+    # Then on to the callback: still nothing to show.
+    assert evidence.pending(log + [{"src": "WebRunner", "msg": "Completed processing of webpage",
+                                    "url": "https://conformance.security.svc/test/a/ofar/callback#state=x"}]) == []
+    # Or on to an error page after the login page: that one is the evidence.
+    error = {"src": "WebRunner", "msg": "Scripted browser HTTP response", "response_status_code": 400,
+             "response_content": "<html><body>Invalid Request</body></html>"}
+    [(_, response)] = evidence.pending(log + [error, on_server])
+    assert response is error
+
+
 def test_evidence_is_a_png_that_says_it_is_not_a_screenshot():
     import base64, io
     from PIL import Image

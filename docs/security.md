@@ -144,10 +144,16 @@ request_uri that is reused, expired or another client's; a request without a req
 Keycloak shows one, and the suite waits for a screenshot of it, then marks the module REVIEW.
 Its scripted browser (HtmlUnit) takes no screenshots, so a headless run waited 240 s per module and
 the next module interrupted it. `evidence.py` watches the running modules: once the browser has
-stopped on the authorisation server's page (not back at the suite's callback, where there is
-nothing to show), it uploads a PNG of the status and visible text of the last HTTP response the
+stopped on an error page of the authorisation server (4XX or 5XX; not back at the suite's
+callback, where there is nothing to show), it uploads a PNG of the status and visible text of the last HTTP response the
 browser got, headed "Not a screenshot". The plan's automation has already waited for the error
 text on that page. The module stays REVIEW: the image is evidence for a reviewer, not a verdict.
+
+A page the server answered with success is not one: the login page of a request it accepted (a
+long nonce, a request_uri used again before the first login completed) is on the browser's way
+to the callback. Filling the placeholder there ends the module, and the callback that follows
+interrupts it: the long-nonce module failed main's baseline so once, when the uploader's sweep
+came before the login.
 
 ### The clean baseline
 
