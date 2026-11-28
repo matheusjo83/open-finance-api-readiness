@@ -59,7 +59,7 @@ platform job, for the walk), the suite in `infra/k8s/security.yaml`.
 | PAR required (5.1 item 3); `request_uri` at least 120 s (item 16), used once (item 22) | `require.pushed.authorization.requests`; `parRequestUriLifespan` 120 (Keycloak's default is 60) |
 | PKCE (item 18) | client profile executor `pkce-enforcer`, S256 |
 | `code id_token` (item 12) | the implicit flow on (Keycloak needs it for the hybrid response type) |
-| Access tokens of 300 to 900 s (item 11) | 300 s |
+| Access tokens of 300 to 900 s (item 11) | 360 s (at 300, Keycloak's `expires_in` is 299 when a second turns between issuing and answering: the suite's `FAPIBrazilValidateExpiresIn` failed the baseline on CI once) |
 | Refresh tokens without rotation (item 13) | executor `suppress-refresh-token-rotation` |
 | acr `urn:brasil:openbanking:loa2` (item 6) | `acr.loa.map` of the realm and clients |
 | id_token encrypted with RSA-OAEP and A256GCM (5.1.1, 6.3) | `id.token.encrypted.response.*`; the SIG uses A128GCM |
@@ -228,7 +228,8 @@ run each (about 4 minutes a run, 52 in all; `reports/variants/`).
 
 The suite detects **7 of the 11**. Most of the rows with many modules are one condition repeated: every module that ends
 with a token checks its `expires_in` and the id_token's algorithm and encryption. One
-`id-token-rs256` module also failed `FAPIBrazilValidateExpiresIn`, once.
+`id-token-rs256` module also failed `FAPIBrazilValidateExpiresIn`, once: the 300-second
+tokens of that measurement, at the edge (now 360 s, above).
 
 Its four gaps, each a requirement of v2.2.0 that nothing in the plan exercises:
 
@@ -236,7 +237,7 @@ Its four gaps, each a requirement of v2.2.0 that nothing in the plan exercises:
   request object by value to the authorisation endpoint and expects a refusal.
 - **`request-uri-60s`**: `FAPIBrazilOBCheckPARResponseExpiresIn` checks at least 60 seconds
   ("the minimum expiration time of request_uri must be 60 seconds"); v2.2.0 says 120.
-- **`expired-token`**: no module waits for a token to expire (300 seconds) before calling the
+- **`expired-token`**: no module waits for a token to expire (360 seconds) before calling the
   resource server.
 - **`foreign-consent`**: the suite's two clients each use their own consent; none tries the
   other's.
