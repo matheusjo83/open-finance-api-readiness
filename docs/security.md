@@ -7,25 +7,28 @@ with extra requirements. It says nothing of FAPI 2.0 or of a date to move to it.
 
 ```bash
 make security-test      # the PKI, the realm and the plan configuration (no cluster)
-make security-deploy    # Keycloak, the conformance suite, the gateway and the transmitter as resource server
+make auth-deploy        # Keycloak, the gateway, the transmitter's and the walk's credentials
+make security-deploy    # the above and the conformance suite
 make conformance        # one run of the suite's Brazil plan against Keycloak and the transmitter
 ```
 
-Stage 2a of 4: Keycloak and the conformance suite in the cluster, the suite run headless against
-a clean Keycloak and the transmitter as resource server, behind an mTLS gateway. Stage 2b moves
-the contract validator's walk to the real flows; the defects come in stage 3 and the detection
-report in stage 4.
+Stage 2 of 4: Keycloak and the conformance suite in the cluster, the suite run headless against
+a clean Keycloak and the transmitter as resource server, behind an mTLS gateway (2a), and the
+contract validator's walk with the real flows through the gateway and the defect proxy (2b,
+[validator.md](validator.md#tokens-and-the-way-in-fapi-br-decision-50)). The defects come in
+stage 3 and the detection report in stage 4.
 
 ## Components
 
-All in the namespace `security` (`infra/k8s/security.yaml`).
+All in the namespace `security`: Keycloak and the gateway in `infra/k8s/auth.yaml` (also in the
+platform job, for the walk), the suite in `infra/k8s/security.yaml`.
 
 | Component | What | Pinned |
 |---|---|---|
 | `keycloak` | The authorisation server: realm `ofb`, HTTPS only, the client certificate requested, H2 in the pod (the realm is imported at every start) | `quay.io/keycloak/keycloak:26.8.2` by digest (Apache-2.0) |
 | `conformance` | The OpenID conformance suite's server in dev mode (no login), behind an nginx TLS front as in its own docker-compose.yml | `registry.gitlab.com/openid/conformance-suite:release-v5.3.5` and its nginx, by digest (MIT) |
 | `conformance-mongo` | The suite's database | `mongo:6.0.13` by digest |
-| `gateway` | The transmitter's mTLS gateway: TLS as v2.2.0 6.4, the client certificate verified against our CA and forwarded to the transmitter (`infra/security/gateway.conf`); only `/open-banking/` | the suite's nginx image |
+| `gateway` | The transmitter's mTLS gateway: TLS as v2.2.0 6.4, the client certificate verified against our CA and forwarded (`infra/security/gateway.conf`); only `/open-banking/`. Two doors: port 443 to the transmitter (the suite), port 8443 through the defect proxy (the walk) | the suite's nginx image |
 | `transmitter` (namespace `ofb`) | The resource server ([below](#the-transmitter-as-resource-server)); its credentials for Keycloak in the Secret `transmitter-security` | `ofar/transmitter:local` |
 | Job `conformance-run` | The suite's own `scripts/run-test-plan.py`, headless, then every module's outcome from the suite's API | `ofar/security-tools:local`; the three scripts by commit `246b2c1` and SHA-256 |
 
@@ -34,7 +37,8 @@ All in the namespace `security` (`infra/k8s/security.yaml`).
 
 - **PKI** (`pki.py`): a CA of our own; TLS certificates for the three Services
   (`<name>.security.svc`); the transmitter's mTLS certificate and signing key for its calls to
-  Keycloak; two clients, each with an mTLS certificate whose subject carries the
+  Keycloak; three clients (the suite's two and the walk's `walker`), each with an mTLS
+  certificate whose subject carries the
   organisation id (OU) and the software statement id (UID), as the Brazilian certificate
   standard does, and a signing (PS256) and an encryption (RSA-OAEP) key. The ids are stable
   (`uuid5`); the keys are made once and kept until `.cache/security/pki` is deleted. Real
@@ -86,7 +90,9 @@ resource server; every refusal is in the specs' error envelope:
 
 The origin of the limits is the organisation id of the certificate (its OU), not the
 `x-mock-client-org-id` stand-in. Requests that do not come through the gateway keep the stand-ins
-of [transmitter.md](transmitter.md) until the walk moves to the real flows (stage 2b).
+of [transmitter.md](transmitter.md): the tests in process, the proxy's own calls and the limits'
+k6 load, which measures counting, not authentication (decision 50). The seeded consents belong
+to the walk's client (`TRANSMITTER_SEED_CLIENT`).
 
 **How a consent is approved.** In Open Finance the customer approves at the transmitter; here the
 authorisation server is Keycloak, and approving inside it would need a Java extension of ours. A

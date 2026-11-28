@@ -6,8 +6,9 @@
 # platform: brings the local platform up in kind, exactly as `make up` does on a laptop, and runs
 # the smoke job (an Iceberg table written to SeaweedFS through the Postgres catalog and read
 # back), then deploys the synthetic transmitter and the defect proxy and calls them from inside
-# the cluster (the proxy's labels are read back from SeaweedFS), and runs the contract validator
-# through the proxy as a Job, joining its results with the labels and pairing the PCM reports of
+# the cluster (the proxy's labels are read back from SeaweedFS), deploys the authorisation server
+# (Keycloak) and the transmitter's mTLS gateway, and runs the contract validator with the real
+# FAPI-BR flows through the gateway and the proxy as a Job, joining its results with the labels and pairing the PCM reports of
 # both sides, then the business-rules job and the detection report over that run as
 # SparkApplications (the report gates the invariants), and generates a 90-day history of PCM
 # reports with operational defects and computes the operational metrics over it, which must
@@ -109,7 +110,12 @@ jobs:
       - name: Defect proxy (image, deploy, labels in SeaweedFS)
         run: make proxy-deploy proxy-smoke
 
-      - name: Contract validator (image, Job through the proxy, results joined with the labels)
+      # Keycloak and the transmitter's mTLS gateway, without the conformance suite (security job):
+      # the walk's real FAPI-BR flows need them.
+      - name: Authorisation server (Keycloak, the transmitter's mTLS gateway)
+        run: make auth-deploy
+
+      - name: Contract validator (image, Job through the gateway and the proxy, real flows, results joined with the labels)
         run: make validate validator-smoke
 
       - name: Telemetry (PCM reports of both sides, paired)

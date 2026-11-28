@@ -48,9 +48,13 @@ def _scope(name: str, **attributes) -> dict:
                            **attributes}}
 
 
+# The walk's redirect URI: never served; the walk reads the code from the redirect itself.
+WALK_REDIRECT = "https://receiver.ofb.svc/callback"
+
+
 def redirect_uris(suite_base: str) -> list[str]:
     base = f"{suite_base.rstrip('/')}/test/a/{ALIAS}/callback"
-    return [base, base + "?dummy1=lorem&dummy2=ipsum"]
+    return [base, base + "?dummy1=lorem&dummy2=ipsum", WALK_REDIRECT]
 
 
 def client(entry: dict, suite_base: str) -> dict:

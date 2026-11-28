@@ -95,14 +95,16 @@ def api_of(path: str) -> str | None:
 
 def create_app(seed: int = 42, customers: int = 5,
                clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-               limits: str | None = None, verifier: Verifier | None = None) -> FastAPI:
+               limits: str | None = None, verifier: Verifier | None = None,
+               seed_client: str | None = None) -> FastAPI:
     """`limits`: TRANSMITTER_LIMITS, JSON raising some limits above the minimums (limits.py).
     `verifier`: checks the tokens of requests through the gateway (security.py); without one,
-    those requests are refused."""
+    those requests are refused. `seed_client`: the client the seeded consents belong to (the
+    walk's, TRANSMITTER_SEED_CLIENT)."""
     started = clock()
     data = ds.build(seed, started.date(), customers)
     store = ConsentStore()
-    for consent in seed_consents(data, started):
+    for consent in seed_consents(data, started, seed_client):
         store.add(consent)
 
     app = FastAPI(title="Synthetic Open Finance transmitter", docs_url=None, redoc_url=None, openapi_url=None)

@@ -28,6 +28,7 @@ def main() -> None:
         customers=int(os.environ.get("TRANSMITTER_CUSTOMERS", "5")),
         limits=os.environ.get("TRANSMITTER_LIMITS"),
         verifier=verifier(),
+        seed_client=os.environ.get("TRANSMITTER_SEED_CLIENT") or None,
     )
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), log_level="info")
 

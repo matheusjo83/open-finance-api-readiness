@@ -1,5 +1,7 @@
-# Contract validator (services/validator): one run walks the seeded resources through the defect
-# proxy, checks every response against the pinned specs and writes the results and the
+# Contract validator (services/validator): one run walks the seeded resources through the
+# transmitter's mTLS gateway and the defect proxy, with the real FAPI-BR flows of the walk's
+# client (ofar-walker; credentials in the Secret walker-security, made by make auth-deploy),
+# checks every response against the pinned specs and writes the results and the
 # exchanges to s3://lakehouse/{contract,exchanges}/run=<proxy run id>/ (docs/validator.md).
 # make validate deletes the previous Job and applies this one.
 apiVersion: batch/v1
@@ -26,7 +28,14 @@ spec:
           image: ofar/contract-validator:local
           imagePullPolicy: Never
           env:
-            - { name: TARGET, value: "http://proxy.ofb.svc" }
+            # The Open Finance APIs: the gateway's door through the defect proxy (auth.yaml).
+            - { name: TARGET, value: "https://gateway.security.svc:8443" }
+            # The proxy itself: its run, GET /mock/seed, the flush of its labels.
+            - { name: INTERNAL, value: "http://proxy.ofb.svc" }
+            - { name: AUTH, value: keycloak }
+            - { name: ISSUER, value: "https://keycloak.security.svc/realms/ofb" }
+            - { name: CLIENT_ID, value: ofar-walker }
+            - { name: SECURITY_DIR, value: /security }
             # New consents per customer that read every balance again (docs/validator.md).
             - { name: BALANCE_CONSENTS, value: "2" }
             - { name: S3_ENDPOINT, value: "http://seaweedfs-all-in-one.storage.svc:8333" }
@@ -41,3 +50,8 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: security, mountPath: /security, readOnly: true }
+      volumes:
+        - name: security
+          secret: { secretName: walker-security }

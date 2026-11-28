@@ -43,12 +43,13 @@ Both: `role`, `endpoint` (the template, as the PCM accepts it), `httpMethod`, `s
 `fapiInteractionId` (when it is a UUID: the client's, or the one the server generated) and
 `additionalInfo`. The client adds `clientSSId` and `endpointUriPrefix`.
 
-The institutions' ids are UUIDs (`uuid5` of local names), equal on both sides. Each validation
-run is a receiver of its own, `uuid5` of `run-<run_id>.receiver.ofb.svc`, so the transmitter's
-monthly limits start from zero for it: the walk sends it as `x-mock-client-org-id` on every call,
-and the proxy reports that header as the `clientOrgId` (the fixed `receiver.ofb.svc` id when it is
-missing). A real server takes the client's id from its certificate (the FAPI layer, later). The
-history keeps the fixed ids.
+The institutions' ids are UUIDs (`uuid5` of local names), equal on both sides. Through the
+transmitter's mTLS gateway (FAPI-BR, decision 50) the receiver is the organisation of the walk's
+certificate: the walk reports it as the `clientOrgId`, and the proxy takes it from the
+certificate the gateway forwards. On the stand-in path (the tests in process, the limits' k6
+load) each validation run is a receiver of its own, `uuid5` of `run-<run_id>.receiver.ofb.svc`,
+sent as `x-mock-client-org-id`, and the proxy reports that header (the fixed `receiver.ofb.svc`
+id when it is missing). The history keeps the fixed ids.
 
 `additionalInfo` follows the portal's pages for Consents and Accounts:
 

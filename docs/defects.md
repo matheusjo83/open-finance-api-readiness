@@ -20,7 +20,7 @@ against the specification and break one of the transmitter's
 | `undeclared-field` | contract | 2xx with a body | `internalReference` is added to `data` or to one item | 0.05 |
 | `inconsistent-balance` | business | balances | `availableAmount` shifted by ±0.01 to ±499.99 | 0.05 |
 | `broken-pagination` | business | accounts list, transactions | One of: last item replaced by a copy of the first; `links.next` removed while more pages exist; `meta.totalRecords` increased | 0.05 |
-| `consent-not-enforced` | business | accounts endpoints answering 401 for a seeded expired, revoked or awaiting consent | The 401 is replaced by the 200 the customer's authorised consent gets | 0.5 |
+| `consent-not-enforced` | business | accounts endpoints answering 401 for a seeded expired, revoked or awaiting consent | The 401 is replaced by the 200 the customer's authorised consent gets (through the gateway, with the last token the proxy saw served for that consent: the walk uses it first) | 0.5 |
 | `transaction-outside-window` | business | transactions with at least one item | One `transactionDateTime` moved 1 to 30 days before or after the requested window | 0.05 |
 | `broken-extension-history` | business | renewal histories with at least two renewals | One of: the list reversed (oldest first); a `previousExpirationDateTime` other than the oldest one's moved 1 to 30 days | 0.05 |
 | `extension-not-reflected` | business | consent reads of a renewed consent (the proxy asks the transmitter for its history) | `expirationDateTime` set back to the one before the last renewal | 0.05 |
@@ -70,9 +70,12 @@ to at most 1; an exchange refused by a limit class gets no response defect.
 
 ## Selection
 
-The decision depends only on the seed (`DEFECT_SEED`) and the request: method, path, sorted query
-and bearer token. The interaction id is left out, so a retry gets the same answer, and the
-validators cannot influence it. One uniform draw from a SHA-256 of that key walks the applicable
+The decision depends only on the seed (`DEFECT_SEED`) and the request: method, path, sorted query,
+the consent (of the bearer token's `consent:<id>`; on the stand-in path the bearer itself) and,
+from the second time the same request comes in the proxy's run, its occurrence. The token itself
+and the interaction id are left out: a JWT is new on every login, so the same walk draws the same
+in every run, and the validators cannot influence it. The occurrence keeps a repeated request a
+draw of its own (the walk's second read of a consent, decision 33; decision 50). One uniform draw from a SHA-256 of that key walks the applicable
 classes in catalogue order, adding up their rates. At most one defect per response, and each
 class is picked with probability equal to its rate where it applies. The rates must add up to
 at most 1. A second hash, with the class name added, picks the field or variant.
@@ -91,8 +94,8 @@ on `POST /_proxy/flush` and at shutdown. A failed write keeps the records for th
 | `run_id` | `RUN_ID`, or `<UTC start time>-<8 hex>` when not set; `GET /_proxy/run` returns it |
 | `ts` | When the proxy answered (UTC, milliseconds) |
 | `interaction_id` | The `x-fapi-interaction-id` the client sent: the join key with the validators' results |
-| `method`, `path`, `route`, `query`, `consent` | The request (`route` such as `accounts.balances`; `consent` is the bearer token) |
-| `origin` | The caller's `x-mock-client-org-id`, or the fixed receiver id without it |
+| `method`, `path`, `route`, `query`, `consent` | The request (`route` such as `accounts.balances`; `consent` is the token's consent, none for a client credentials token) |
+| `origin` | The organisation of the caller's certificate (through the gateway), else its `x-mock-client-org-id`, else the fixed receiver id |
 | `upstream_status`, `status` | What the transmitter answered and what the client got |
 | `seed` | `DEFECT_SEED` |
 | `defect_class`, `defect_layer` | The class and its layer, or null for a clean response |

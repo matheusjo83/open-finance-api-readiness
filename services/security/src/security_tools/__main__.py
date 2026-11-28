@@ -7,6 +7,7 @@ run-test-plan.py over one plan, timed (in the image, infra/k8s/conformance-run.y
 import argparse
 import json
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -31,6 +32,11 @@ def render(out: Path) -> None:
     if manifest is None or not pki.current(manifest):
         manifest = pki.build(tls)
     (out / "realm.json").write_text(json.dumps(realm.build(manifest, SUITE_BASE, CPF), indent=1))
+    # Kept like the PKI: Keycloak's bootstrap admin (the walk creates its customers' users with
+    # it) and the password of those users. Local secrets, never committed.
+    for name in ("keycloak-admin-password", "walker-user-password"):
+        if not (out / name).exists():
+            (out / name).write_text(secrets.token_urlsafe(24))
     providers.build(out)
     (out / "plan.json").write_text(json.dumps(
         suite.build(manifest, tls, issuer=ISSUER, suite_base=SUITE_BASE, resource_base=RESOURCE_BASE, cpf=CPF),

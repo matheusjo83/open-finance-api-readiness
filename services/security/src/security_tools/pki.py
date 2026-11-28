@@ -24,7 +24,8 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 NAMESPACE = "security"
 # The servers, by their in-cluster Service name (gateway: the transmitter's mTLS gateway).
 SERVERS = ("keycloak", "conformance", "gateway")
-CLIENTS = ("client1", "client2")
+# client1 and client2: the suite's; walker: the contract validator's walk (stage 2b).
+CLIENTS = ("client1", "client2", "walker")
 RESOURCE_SERVER = "transmitter"
 # Stable ids, so a client's identity does not change when its keys are made again.
 ID_NAMESPACE = uuid.UUID("6f1d3c55-8a0e-4f1b-9a52-3c1d2b7e9f10")

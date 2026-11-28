@@ -74,6 +74,12 @@ class Exchange:
         value = self.request_headers.get("authorization", "")
         return value[7:].strip() if value.lower().startswith("bearer ") else None
 
+    @property
+    def consent(self) -> str | None:
+        """The consent the request is made for: of the token's `consent:<id>` (caller.py)."""
+        from .caller import consent_of
+        return consent_of(self.token)
+
     def query_value(self, name: str) -> str | None:
         return next((v for k, v in self.query if k == name), None)
 
@@ -91,10 +97,11 @@ class Injection:
 
 @dataclass
 class Context:
-    """What some defects need besides the exchange: the seeded consents, by customer, and a
-    consent's renewal history at the transmitter."""
+    """What some defects need besides the exchange: a token for the customer's authorised
+    consent (the seeded consents, by customer), and a consent's renewal history at the
+    transmitter."""
 
-    substitute_consent: Callable[[str], Awaitable[str | None]]
+    substitute_token: Callable[["Exchange"], Awaitable[str | None]]
     extensions: Callable[[str], Awaitable[list[dict]]]
 
 
@@ -228,18 +235,18 @@ async def _broken_pagination(ex: Exchange, rng: random.Random, ctx: Context) -> 
 
 
 def _consent_not_enforced_applies(ex: Exchange) -> bool:
-    return (ex.route or "").startswith("accounts.") and ex.status == 401 and ex.token is not None and ex.replaced is not None
+    return (ex.route or "").startswith("accounts.") and ex.status == 401 and ex.consent is not None and ex.replaced is not None
 
 
 async def _consent_not_enforced(ex: Exchange, rng: random.Random, ctx: Context) -> Injection | None:
-    substitute = await ctx.substitute_consent(ex.token)
+    substitute = await ctx.substitute_token(ex)
     if substitute is None:
         return None
     status, headers, body = await ex.replaced(substitute)
     if status != 200:
         return None
     ex.status, ex.headers, ex.body = status, headers, body
-    return Injection("served", "status", f"401 for consent {ex.token} replaced by the data it should not see")
+    return Injection("served", "status", f"401 for consent {ex.consent} replaced by the data it should not see")
 
 
 def _window(ex: Exchange) -> tuple[date, date]:

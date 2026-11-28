@@ -172,6 +172,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "httpx2" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -188,6 +189,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "httpx2" },
     { name = "starlette" },
     { name = "uvicorn" },
