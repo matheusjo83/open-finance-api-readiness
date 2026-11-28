@@ -36,6 +36,9 @@ spec:
             - { name: TRANSMITTER_ISSUER, value: "https://keycloak.security.svc/realms/ofb" }
             - { name: TRANSMITTER_CLIENT_ID, value: ofar-transmitter }
             - { name: TRANSMITTER_SECURITY_DIR, value: /security }
+            # The seeded consents belong to the walk's client (through the gateway a client sees
+            # only its own consents).
+            - { name: TRANSMITTER_SEED_CLIENT, value: ofar-walker }
             # The scheme of the self links from the gateway's X-Forwarded-Proto (uvicorn trusts only
             # 127.0.0.1 by default; the Service is in-cluster only).
             - { name: FORWARDED_ALLOW_IPS, value: "*" }

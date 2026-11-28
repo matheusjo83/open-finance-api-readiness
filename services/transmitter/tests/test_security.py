@@ -212,3 +212,13 @@ def test_the_origin_of_the_limits_is_the_certificate(api, app, issuer, clients, 
     counters = app.state.limits
     assert any(origin == "org-client1" for _, origin, _ in counters.minutes), counters.minutes
     assert any(key.receiver == "org-client1" and key.obj == authorised for key in counters.months), counters.months
+
+
+def test_the_seeded_consents_belong_to_the_seed_client(clock, specs, issuer, clients):
+    verifier = Verifier(issuer=ISSUER, audience=AUDIENCE, jwks=issuer.jwks, introspect=issuer.introspect, clock=clock)
+    api = CheckedClient(TestClient(create_app(seed=42, customers=5, clock=clock, verifier=verifier,
+                                              seed_client="ofar-client1")), specs)
+    authorised = api.client.get("/mock/seed").json()["customers"][0]["consents"][0]
+    for name, status in (("client1", 200), ("client2", 401)):
+        client_id, cert = clients[name]
+        assert accounts(api, issuer.token(client_id, cert, f"accounts consent:{authorised}"), cert) == status

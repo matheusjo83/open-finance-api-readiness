@@ -1,7 +1,10 @@
 """Which defect, if any, an exchange gets: a deterministic function of the seed and the request.
 
-The key is the seed, the method, the path, the sorted query and the consent (bearer token); the
-interaction id is left out, so a retried request gets the same decision. One uniform draw from
+The key is the seed, the method, the path, the sorted query, the consent (of the bearer token:
+caller.py) and, from the second time the same request comes in the proxy's run, its occurrence;
+the interaction id and the token itself are left out (a JWT is new on every login), so a walk
+draws the same in every run. The occurrence keeps a repeated request a draw of its own, as the
+walk's second read of a consent (decision 33). One uniform draw from
 the key walks the applicable classes, in catalogue order, accumulating their rates: at most one
 defect per response, and each class is chosen with probability equal to its rate.
 """
@@ -35,17 +38,19 @@ def parse_rates(raw: str | None) -> dict[str, float]:
     return rates
 
 
-def request_key(seed: int, ex: Exchange) -> str:
+def request_key(seed: int, ex: Exchange, occurrence: int = 1) -> str:
     query = "&".join(f"{k}={v}" for k, v in sorted(ex.query))
-    return f"{seed}|{ex.method}|{ex.path}|{query}|{ex.token or ''}"
+    key = f"{seed}|{ex.method}|{ex.path}|{query}|{ex.consent or ''}"
+    return key if occurrence == 1 else f"{key}|{occurrence}"
 
 
 def _uniform(text: str) -> float:
     return int.from_bytes(hashlib.sha256(text.encode()).digest()[:8], "big") / 2**64
 
 
-def choose(seed: int, rates: dict[str, float], ex: Exchange) -> tuple[Defect, random.Random] | None:
-    key = request_key(seed, ex)
+def choose(seed: int, rates: dict[str, float], ex: Exchange,
+           occurrence: int = 1) -> tuple[Defect, random.Random] | None:
+    key = request_key(seed, ex, occurrence)
     draw, cumulative = _uniform(key), 0.0
     for defect in CATALOGUE:
         rate = rates.get(defect.id, 0.0)

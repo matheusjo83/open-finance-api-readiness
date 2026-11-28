@@ -108,8 +108,9 @@ class ConsentStore:
         ))
 
 
-def seed_consents(dataset: Dataset, now: datetime) -> list[Consent]:
-    """Deterministic consents for the seeded customers (listed by GET /mock/seed).
+def seed_consents(dataset: Dataset, now: datetime, client_id: str | None = None) -> list[Consent]:
+    """Deterministic consents for the seeded customers (listed by GET /mock/seed), created by
+    `client_id` (the walk's client: through the gateway a client sees only its own consents).
 
     Every customer gets, in this order: an AUTHORISED consent with all accounts permissions,
     valid for a year, then one consent per non-happy path: expired, revoked, without balances
@@ -119,32 +120,32 @@ def seed_consents(dataset: Dataset, now: datetime) -> list[Consent]:
     for index, customer in enumerate(dataset.customers, start=1):
         prefix, cpf = f"urn:transmitter:seed-{index}", customer.cpf
         out.append(Consent(
-            consent_id=f"{prefix}-authorised", cpf=cpf, cnpj=None,
+            consent_id=f"{prefix}-authorised", cpf=cpf, cnpj=None, client_id=client_id,
             permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=10),
             expiration=now + MAX_VALIDITY - timedelta(days=10), status="AUTHORISED",
             status_updated=now - timedelta(days=10, minutes=-5),
         ))
         out.append(Consent(
-            consent_id=f"{prefix}-expired", cpf=cpf, cnpj=None,
+            consent_id=f"{prefix}-expired", cpf=cpf, cnpj=None, client_id=client_id,
             permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=400),
             expiration=now - timedelta(days=35), status="AUTHORISED",
             status_updated=now - timedelta(days=400, minutes=-5),
         ))
         revoked = Consent(
-            consent_id=f"{prefix}-revoked", cpf=cpf, cnpj=None,
+            consent_id=f"{prefix}-revoked", cpf=cpf, cnpj=None, client_id=client_id,
             permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(days=60),
             expiration=now + timedelta(days=300), status="AUTHORISED",
         )
         revoked.reject(now - timedelta(days=20), "USER", "CUSTOMER_MANUALLY_REVOKED")
         out.append(revoked)
         out.append(Consent(
-            consent_id=f"{prefix}-no-balances", cpf=cpf, cnpj=None,
+            consent_id=f"{prefix}-no-balances", cpf=cpf, cnpj=None, client_id=client_id,
             permissions=["ACCOUNTS_READ", "RESOURCES_READ"], created=now - timedelta(days=5),
             expiration=now + timedelta(days=180), status="AUTHORISED",
             status_updated=now - timedelta(days=5, minutes=-5),
         ))
         out.append(Consent(
-            consent_id=f"{prefix}-awaiting", cpf=cpf, cnpj=None,
+            consent_id=f"{prefix}-awaiting", cpf=cpf, cnpj=None, client_id=client_id,
             permissions=list(ACCOUNTS_PERMISSIONS), created=now - timedelta(minutes=1),
             expiration=now + timedelta(days=90),
         ))

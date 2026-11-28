@@ -72,7 +72,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  security-test security-image security-render security-deploy conformance security-reports \
+  security-test security-image security-render auth-deploy security-deploy conformance security-reports \
   validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke limits-job limits-report limits-campaign campaign focused-campaign reports \
   up smoke diagnose down
 
@@ -220,38 +220,52 @@ security-image: cluster $(OIDF_SCRIPTS)
 security-render: $(BIN)/uv
 	cd services/security && uv run --locked python -m security_tools render $(CURDIR)/$(SECURITY_DIR)
 
-# Keycloak, the conformance suite and the transmitter's mTLS gateway (infra/k8s/security.yaml),
-# and the transmitter's credentials as resource server (Secret transmitter-security in ofb). The
-# pods roll only when the realm, the provider jar, the certificates or the nginx configurations
-# change; the transmitter only when its credentials do.
+# Keycloak and the transmitter's mTLS gateway (infra/k8s/auth.yaml), the transmitter's credentials
+# as resource server (Secret transmitter-security) and the walk's as receiver (Secret
+# walker-security), both in ofb: what the contract validator's walk needs. The pods roll only
+# when the realm, the provider jar, the certificates or the gateway's configuration change; the
+# transmitter only when its credentials do.
 define security_object
 kubectl -n security create $(1) --dry-run=client -o yaml | kubectl apply -f -
 endef
-security-deploy: cluster security-render transmitter-deploy
+define config_id
+$$(cat $(SECURITY_DIR)/realm.json $(SECURITY_DIR)/ofar-scripts.jar $(SECURITY_DIR)/keycloak-admin-password \
+  $(SECURITY_DIR)/pki/*.pem infra/security/*.conf | sha256sum | cut -c1-12)
+endef
+auth-deploy: cluster security-render transmitter-deploy
 	$(call security_object,secret generic keycloak-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/keycloak.pem \
 	  --from-file=tls.key=$(SECURITY_DIR)/pki/keycloak.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
-	$(call security_object,secret generic conformance-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/conformance.pem \
-	  --from-file=tls.key=$(SECURITY_DIR)/pki/conformance.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
 	$(call security_object,secret generic gateway-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/gateway.pem \
 	  --from-file=tls.key=$(SECURITY_DIR)/pki/gateway.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
 	$(call security_object,secret generic keycloak-realm --from-file=ofb-realm.json=$(SECURITY_DIR)/realm.json)
 	$(call security_object,secret generic keycloak-providers --from-file=ofar-scripts.jar=$(SECURITY_DIR)/ofar-scripts.jar)
-	$(call security_object,secret generic conformance-plan --from-file=plan.json=$(SECURITY_DIR)/plan.json)
-	$(call security_object,configmap conformance-nginx --from-file=nginx.conf=infra/security/conformance-nginx.conf)
+	$(call security_object,secret generic keycloak-admin --from-file=password=$(SECURITY_DIR)/keycloak-admin-password)
 	$(call security_object,configmap gateway-nginx --from-file=nginx.conf=infra/security/gateway.conf)
 	kubectl -n ofb create secret generic transmitter-security --dry-run=client -o yaml \
 	  --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem --from-file=transmitter.pem=$(SECURITY_DIR)/pki/transmitter.pem \
 	  --from-file=transmitter.key=$(SECURITY_DIR)/pki/transmitter.key \
 	  --from-file=transmitter.jwks.json=$(SECURITY_DIR)/pki/transmitter.jwks.json | kubectl apply -f -
+	kubectl -n ofb create secret generic walker-security --dry-run=client -o yaml \
+	  --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem --from-file=walker.pem=$(SECURITY_DIR)/pki/walker.pem \
+	  --from-file=walker.key=$(SECURITY_DIR)/pki/walker.key --from-file=walker.jwks.json=$(SECURITY_DIR)/pki/walker.jwks.json \
+	  --from-file=keycloak-admin-password=$(SECURITY_DIR)/keycloak-admin-password \
+	  --from-file=walker-user-password=$(SECURITY_DIR)/walker-user-password | kubectl apply -f -
 	kubectl -n ofb patch deployment transmitter -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":\
 	{\"ofar/security-id\":\"$$(cat $(SECURITY_DIR)/pki/ca.pem $(SECURITY_DIR)/pki/transmitter.* | sha256sum | cut -c1-12)\"}}}}}"
-	sed "s|ofar/config-id: .*|ofar/config-id: \"$$(cat $(SECURITY_DIR)/realm.json $(SECURITY_DIR)/ofar-scripts.jar \
-	  $(SECURITY_DIR)/pki/*.pem infra/security/*.conf | sha256sum | cut -c1-12)\"|" infra/k8s/security.yaml | kubectl apply -f -
+	sed "s|ofar/config-id: .*|ofar/config-id: \"$(config_id)\"|" infra/k8s/auth.yaml | kubectl apply -f -
 	kubectl -n security delete deployment/rs-stub service/rs-stub configmap/rs-stub-nginx secret/rs-stub-tls \
 	  --ignore-not-found
 	kubectl -n ofb rollout status deployment/transmitter --timeout=3m
-	for d in keycloak conformance conformance-mongo gateway; do \
-	  kubectl -n security rollout status deployment/$$d --timeout=6m; done
+	for d in keycloak gateway; do kubectl -n security rollout status deployment/$$d --timeout=6m; done
+
+# The above and the OpenID conformance suite (infra/k8s/security.yaml).
+security-deploy: auth-deploy
+	$(call security_object,secret generic conformance-tls --from-file=tls.crt=$(SECURITY_DIR)/pki/conformance.pem \
+	  --from-file=tls.key=$(SECURITY_DIR)/pki/conformance.key --from-file=ca.pem=$(SECURITY_DIR)/pki/ca.pem)
+	$(call security_object,secret generic conformance-plan --from-file=plan.json=$(SECURITY_DIR)/plan.json)
+	$(call security_object,configmap conformance-nginx --from-file=nginx.conf=infra/security/conformance-nginx.conf)
+	sed "s|ofar/config-id: .*|ofar/config-id: \"$(config_id)\"|" infra/k8s/security.yaml | kubectl apply -f -
+	for d in conformance conformance-mongo; do kubectl -n security rollout status deployment/$$d --timeout=6m; done
 
 # One run of the conformance suite's Brazil plan against Keycloak (infra/k8s/conformance-run.yaml).
 conformance: security-image
@@ -290,9 +304,13 @@ validator-image: cluster specs
 	docker build --build-context specs=specs/upstream -t $(VALIDATOR_IMAGE) services/validator
 	$(KIND_LOAD) $(VALIDATOR_IMAGE)
 
-# One validation run through the proxy, as a Job: results and exchanges in SeaweedFS.
+# One validation run through the gateway and the proxy, as a Job: results and exchanges in
+# SeaweedFS. The walk is the same receiver (its certificate) in every run, so the transmitter
+# starts afresh first: its monthly limits count per receiver (decision 50). Needs auth-deploy.
 validate: validator-image
 	kubectl -n ofb delete job contract-validator --ignore-not-found --wait
+	kubectl -n ofb rollout restart deployment/transmitter
+	kubectl -n ofb rollout status deployment/transmitter --timeout=3m
 	kubectl apply -f infra/k8s/validator.yaml
 	scripts/wait-job.sh ofb contract-validator 900
 
@@ -414,7 +432,7 @@ FOCUSED_RATES ?= {"missing-required-field": 0, "invalid-format": 0, "missing-int
 focused-campaign:
 	scripts/campaign.sh "$(SEEDS)" "$(CUSTOMERS)" "$(or $(REPORT_NAME),focused-$$(date -u +%Y%m%d))" '$(FOCUSED_RATES)'
 
-up: platform image transmitter-deploy proxy-deploy
+up: platform image transmitter-deploy proxy-deploy auth-deploy
 
 # Writes an Iceberg table to SeaweedFS through the Postgres catalog and reads it back.
 smoke:

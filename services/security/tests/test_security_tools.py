@@ -53,12 +53,22 @@ def test_client_certificates_carry_the_organisation_and_software_ids(built):
         assert ExtendedKeyUsageOID.CLIENT_AUTH in eku
 
 
-def test_the_two_clients_differ_in_every_key(built):
-    # The suite's ensure-matching-key-in-authorization-request needs two different keys.
+def test_the_clients_differ_in_every_key(built):
+    # The suite's ensure-matching-key-in-authorization-request needs two different keys; the
+    # walk is a receiver of its own.
     out, manifest = built
-    one, two = (json.loads((out / "pki" / c["jwks"]).read_text())["keys"] for c in manifest["clients"].values())
-    assert {k["n"] for k in one}.isdisjoint({k["n"] for k in two})
-    assert manifest["clients"]["client1"]["organisation_id"] != manifest["clients"]["client2"]["organisation_id"]
+    keys = [{k["n"] for k in json.loads((out / "pki" / c["jwks"]).read_text())["keys"]}
+            for c in manifest["clients"].values()]
+    assert len(keys) == 3 and all(a.isdisjoint(b) for i, a in enumerate(keys) for b in keys[i + 1:])
+    assert len({c["organisation_id"] for c in manifest["clients"].values()}) == 3
+
+
+def test_the_walk_has_its_redirect_and_secrets(built):
+    out, manifest = built
+    walker = next(c for c in realm_of(built)["clients"] if c["clientId"] == "ofar-walker")
+    assert realm.WALK_REDIRECT in walker["redirectUris"]
+    for name in ("keycloak-admin-password", "walker-user-password"):
+        assert len((out / name).read_text()) >= 24
 
 
 def test_public_jwks_have_no_private_part_and_match_the_private_ones(built):
@@ -124,7 +134,7 @@ def receivers(r):
 
 def test_every_client_follows_fapi_br(built):
     r = realm_of(built)
-    assert len(receivers(r)) == 2
+    assert len(receivers(r)) == 3
     for c in receivers(r):
         a = c["attributes"]
         assert c["clientAuthenticatorType"] == "client-jwt"                  # private_key_jwt (5.1 item 2)
@@ -140,7 +150,8 @@ def test_every_client_follows_fapi_br(built):
         assert "consent" in c["optionalClientScopes"]
         # No customer data in the id_token unless asked for.
         assert not {"profile", "email"} & set(c["defaultClientScopes"])
-        assert all(u.startswith(f"{SUITE}/test/a/{realm.ALIAS}/callback") for u in c["redirectUris"])
+        assert all(u.startswith(f"{SUITE}/test/a/{realm.ALIAS}/callback") or u == realm.WALK_REDIRECT
+                   for u in c["redirectUris"])
         jwks = json.loads(a["jwks.string"])["keys"]
         assert jwks and all("d" not in k for k in jwks)
 

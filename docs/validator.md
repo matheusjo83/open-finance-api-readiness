@@ -20,12 +20,13 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
 - per customer, each of its other seeded consents (expired, revoked, without balances,
   awaiting) is read, then used on the accounts list and on every balance. That gives a 401 when
   the consent is not authorised, and a 403 for the balances of the consent without the
-  permission;
+  permission. With the real flows the consent still awaiting is only read: no token can be had
+  for a consent nobody approved (logging in for it would approve it);
 - per customer, `BALANCE_CONSENTS` (default 2) new consents are created (201), authorised
-  (`/mock`) and read, and each reads every balance again. A request of its own means a draw of
+  by the customer and read, and each reads every balance again. A request of its own means a draw of
   its own, so the balance rule gets more independent cases;
 - per customer, a consent is created, authorised and read, renewed twice (201: 180 and 300 days
-  ahead, with the consent as the bearer and the logged user's address and agent), its renewal
+  ahead, with the consent's own token and the logged user's address and agent), its renewal
   history read with each client token (a draw each), the consent read again, and two renewals
   that must be refused (422): the revoked seeded consent, and this consent to an earlier date;
 - for the first customer: an unknown account (404), and a consent lifecycle: create, authorise,
@@ -33,7 +34,7 @@ A fixed sequence over `GET /mock/seed`, the same for every run:
 
 A consent is always read before it is used, so the business rules know its state
 ([business-rules.md](business-rules.md)). It is read twice, the second time with a renewed
-client-credentials token. The proxy keys its draw on the bearer, so this second read gets a draw
+client-credentials token: the proxy counts a repeated request, so this second read gets a draw
 of its own, and the state is still known when one of the two reads fails the contract layer
 (decision 33). The read after the revocation, in the lifecycle, is made once: nothing uses the
 consent after it. When a full page comes without `links.next`, the walk
@@ -41,10 +42,33 @@ asks for the next page number anyway, a careful client's probe. A dropped next l
 shows up as a later page with items.
 
 It covers the 11 implemented operations. Every call carries a fresh `x-fapi-interaction-id`. That
-id joins the result with the proxy's label. Every call also carries the run's receiver id as
-`x-mock-client-org-id` (the stand-in for the client's certificate), so the transmitter's monthly
-limits start from zero in each run ([telemetry.md](telemetry.md)). With 5 customers it makes about 270 calls;
-with 50, about 2,400.
+id joins the result with the proxy's label. With 5 customers it makes about 330 calls and 35
+logins; with 50, about 2,200 calls.
+
+### Tokens and the way in (FAPI-BR, decision 50)
+
+In the cluster (`AUTH=keycloak`) the walk is a receiving institution with a client of its own,
+`ofar-walker`, and calls the APIs through the transmitter's mTLS gateway, on its door through
+the defect proxy (`https://gateway.security.svc:8443`), with its certificate
+(`contract_validator/auth.py`):
+
+- the Consents API with a client credentials token (private_key_jwt, PS256, scope `consents`),
+  renewed for the second read of a consent;
+- each consent the customer authorises with the real flow: a signed request object pushed (PAR)
+  with PKCE, the authorisation endpoint, Keycloak's login and grant screen (scripted, as the
+  suite's browser does), the code of the hybrid response exchanged with the code verifier, and
+  both id_tokens decrypted (RSA-OAEP, A256GCM) and checked (PS256 by the issuer, audience,
+  nonce, acr loa2). Keycloak approves the consent at the transmitter as it issues the token. The
+  seeded consents, already approved or ended, get their token the same way;
+- each seeded customer is a user of the realm (`customer-<cpf>`), created from `GET /mock/seed`
+  with Keycloak's admin API before the walk;
+- tokens are kept per consent and refreshed 30 seconds before they expire.
+
+The receiver is the organisation of the walk's certificate, the same in every run, so
+`make validate` restarts the transmitter first: its monthly limits count per receiver and start
+from zero. `GET /mock/seed` and the proxy's own endpoints are called on the proxy directly. The
+tests in process keep the stand-ins (`auth.StandIn`: the consent id as the token, `/mock`
+authorisation, the run's receiver in `x-mock-client-org-id`), so the walk itself is the same.
 
 The defects the proxy draws depend on the requests (decision 17), and the walk is fixed, so two
 runs over the same seed see the same defects. A defect can also change the walk. For example,
@@ -111,7 +135,8 @@ Results:
 | `findings` | `{rule, severity, pointer, message}`; `pointer` is a JSON pointer into the body, `header:<name>`, `status`, `content-type` or `operation` |
 
 Exchanges carry `run_id`, `walk_id`, `seq`, `ts`, `interaction_id`, `method`, `path`, `query`,
-`operation`, `consent` (the bearer token), `request_headers` (without `authorization`),
+`operation`, `consent` (the consent of the token's `consent:<id>`, none for a client credentials
+token; on the stand-in path the bearer), `request_headers` (without `authorization`),
 `request_body`, `status`, `response_headers` and `response_body`. The bodies are kept as text,
 so each route can be parsed with its own schema.
 

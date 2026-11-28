@@ -12,7 +12,8 @@ from typing import Any
 from .results import PartWriter, Store
 from .rules import RULES, Exchange, check
 from .spec import Spec, spec_for
-from .telemetry import Parties, client_record, run_receiver
+from .auth import consent_of
+from .telemetry import Parties, client_record
 from .walk import HttpClient, Walker
 
 
@@ -53,7 +54,8 @@ def exchange_record(run_id: str, walk_id: str, seq: int, ex: Exchange, operation
         "run_id": run_id, "walk_id": walk_id, "seq": seq, "ts": _now(), "interaction_id": ex.interaction_id,
         "method": ex.method, "path": ex.path, "query": ex.query or None, "operation": operation,
         "request_headers": {k: v for k, v in ex.request_headers.items() if k != "authorization"},
-        "consent": ex.request_headers.get("authorization", "")[7:] or None,
+        # The consent the call is made for (the token's consent:<id>; a stand-in bearer is it).
+        "consent": consent_of(ex.request_headers.get("authorization", "")[7:] or None),
         "request_body": ex.request_body.decode() if ex.request_body else None,
         "status": ex.status, "response_headers": ex.headers,
         "response_body": ex.body.decode("utf-8", errors="replace") if ex.body else None,
@@ -63,10 +65,10 @@ def exchange_record(run_id: str, walk_id: str, seq: int, ex: Exchange, operation
 def run(client: HttpClient, specs: list[Spec], store: Store, run_id: str | None = None,
         walker: Walker | None = None, parties: Parties = Parties()) -> dict[str, Any]:
     run_id = proxy_run_id(client) or run_id or new_run_id()
-    # The run's own receiver: sent on every call and reported as the clientOrgId.
+    # The receiver, reported as the clientOrgId: the run's own on the stand-in path (sent on
+    # every call), the organisation of the walk's certificate through the gateway.
     walker = walker or Walker(client)
-    walker.origin = run_receiver(run_id)
-    parties = dataclasses.replace(parties, client_org_id=walker.origin)
+    parties = dataclasses.replace(parties, client_org_id=walker.auth.receiver(run_id))
     walk_id = uuid.uuid4().hex[:8]
     results = PartWriter(store, f"contract/run={run_id}/", walk_id)
     exchanges = PartWriter(store, f"exchanges/run={run_id}/", walk_id)

@@ -1,0 +1,140 @@
+# The transmitter's authorisation server (Keycloak) and its mTLS gateway (FAPI-BR, backlog item 19):
+# what the contract validator's walk needs (make auth-deploy, also in the platform job). The
+# conformance suite that tests them is in security.yaml (make security-deploy). Certificates, the
+# realm, the provider jar and the admin password come from Secrets made by make auth-deploy
+# (services/security; nothing secret is committed). The images are multi-platform indexes,
+# pulled by digest from their registries: kind cannot load those from the local image store
+# (decision 46). The namespace is in namespaces.yaml.
+# Keycloak 26.8.2 with the realm of services/security (realm ofb), HTTPS only, the client
+# certificate requested (mTLS for certificate-bound tokens), H2 in the pod: the realm is imported
+# at every start, so a restart is a fresh authorisation server. Our provider jar (the script mapper
+# that approves a consent at the transmitter) is in /opt/keycloak/providers; with a new provider
+# `start` rebuilds Keycloak first.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: security
+  labels: { app: keycloak }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+      annotations:
+        # make security-deploy writes a hash of the realm and certificates here.
+        ofar/config-id: unset
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
+          args:
+            - start
+            - --import-realm
+            - --db=dev-file
+            # consent:<id> (called dynamic-scopes before 26.7); scripts: our provider jar.
+            - --features=parameterized-scopes,scripts
+            - --hostname=https://keycloak.security.svc
+            - --http-enabled=false
+            - --https-port=8443
+            - --https-certificate-file=/tls/tls.crt
+            - --https-certificate-key-file=/tls/tls.key
+            - --https-client-auth=request
+            # FAPI-BR v2.2.0 6.4 and BCP 195 (the suite rejects any other): TLS 1.2 with the two
+            # ECDHE-RSA GCM suites, and TLS 1.3. As Keycloak's OAuth SIG sets them.
+            - --https-protocols=TLSv1.3,TLSv1.2
+            - --https-cipher-suites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+            - --truststore-paths=/tls/ca.pem
+            - --health-enabled=true
+          env:
+            - { name: JAVA_OPTS_KC_HEAP, value: "-XX:MaxRAMPercentage=60" }
+            # The bootstrap admin of the master realm: the walk creates its customers' users with
+            # it (H2 in the pod, so it is made again at every start).
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: password } }
+          ports:
+            - { name: https, containerPort: 8443 }
+            - { name: management, containerPort: 9000 }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management, scheme: HTTPS }
+            periodSeconds: 3
+            failureThreshold: 100
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+            - { name: providers, mountPath: /opt/keycloak/providers, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: keycloak-tls }
+        - name: realm
+          secret: { secretName: keycloak-realm }
+        - name: providers
+          secret: { secretName: keycloak-providers }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: security
+spec:
+  selector: { app: keycloak }
+  ports:
+    - { name: https, port: 443, targetPort: https }
+---
+# The transmitter's mTLS gateway (infra/security/gateway.conf): https://gateway.security.svc in
+# front of http://transmitter.ofb.svc.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: security
+  labels: { app: gateway }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gateway }
+  template:
+    metadata:
+      labels: { app: gateway }
+      annotations:
+        ofar/config-id: unset
+    spec:
+      containers:
+        - name: nginx
+          image: registry.gitlab.com/openid/conformance-suite/nginx:release-v5.3.5@sha256:fd5ae05bf2a8f246f600b16a198dd670051bbad44f0b59d903da6e294e02707d
+          ports:
+            - { name: https, containerPort: 8443 }
+            - { name: walk, containerPort: 8444 }
+          readinessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: nginx, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: gateway-tls }
+        - name: nginx
+          configMap: { name: gateway-nginx }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: security
+spec:
+  selector: { app: gateway }
+  ports:
+    # To the transmitter (the suite) and through the defect proxy (the walk).
+    - { name: https, port: 443, targetPort: https }
+    - { name: walk, port: 8443, targetPort: walk }
+

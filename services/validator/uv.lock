@@ -124,6 +124,7 @@ dependencies = [
     { name = "boto3" },
     { name = "httpx2" },
     { name = "openapi-core" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pyyaml" },
     { name = "werkzeug" },
 ]
@@ -140,6 +141,7 @@ requires-dist = [
     { name = "boto3" },
     { name = "httpx2" },
     { name = "openapi-core" },
+    { name = "pyjwt", extras = ["crypto"] },
     { name = "pyyaml" },
     { name = "werkzeug" },
 ]
@@ -207,6 +209,7 @@ version = "0.1.0"
 source = { editable = "../proxy" }
 dependencies = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "httpx2" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -215,6 +218,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "httpx2" },
     { name = "starlette" },
     { name = "uvicorn" },

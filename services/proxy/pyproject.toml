@@ -5,6 +5,7 @@ description = "Defect proxy: forwards to the synthetic transmitter, injects cata
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "boto3",
+    "cryptography",
     "httpx2",
     "starlette",
     "uvicorn",
