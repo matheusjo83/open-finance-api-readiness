@@ -326,3 +326,65 @@ def test_every_known_failure_names_its_conditions_and_reason():
     assert len(suite.KNOWN) == 6
     for module, (conditions, reason) in suite.KNOWN.items():
         assert module.startswith("fapi1-advanced-final") and conditions and len(reason) > 40
+
+
+def test_each_variant_breaks_its_requirement_and_nothing_else(built):
+    from security_tools import variants
+    clean = realm_of(built)
+    before = json.dumps(clean, sort_keys=True)
+    for v in variants.VARIANTS.values():
+        patched, flags = variants.apply(clean, v.id)
+        assert json.dumps(clean, sort_keys=True) == before, f"{v.id} changed the clean realm"
+        assert v.layer in (variants.AS, variants.RS) and v.requirement and v.description
+        if v.layer == variants.RS:
+            assert patched == clean and flags == v.transmitter
+            continue
+        assert patched != clean and flags == ""
+    get = lambda r, name: next(c for c in r["clients"] if c["clientId"] == name)  # noqa: E731
+    attrs = lambda vid: get(variants.apply(clean, vid)[0], "ofar-client1")["attributes"]  # noqa: E731
+    assert attrs("par-optional")["require.pushed.authorization.requests"] == "false"
+    assert "pkce.code.challenge.method" not in attrs("pkce-optional")
+    assert attrs("id-token-rs256")["id.token.signed.response.alg"] == "RS256"
+    assert "id.token.encrypted.response.alg" not in attrs("id-token-unencrypted")
+    assert variants.apply(clean, "long-access-token")[0]["accessTokenLifespan"] == 1800
+    assert variants.apply(clean, "request-uri-60s")[0]["attributes"]["parRequestUriLifespan"] == "60"
+    rotation = variants.apply(clean, "refresh-rotation")[0]
+    assert rotation["revokeRefreshToken"] is True
+    assert "suppress-refresh-token-rotation" not in {e["executor"] for e in rotation["clientProfiles"]["profiles"][0]["executors"]}
+    # The resource server's client is never patched.
+    for vid in variants.VARIANTS:
+        assert get(variants.apply(clean, vid)[0], realm.RESOURCE_SERVER_CLIENT) == get(clean, realm.RESOURCE_SERVER_CLIENT)
+
+
+def test_a_variant_is_rendered_and_labelled(tmp_path, built):
+    import shutil
+    shutil.copytree(built[0] / "pki", tmp_path / "pki")
+    render(tmp_path, "foreign-consent")
+    assert (tmp_path / "transmitter-defects").read_text() == "foreign-consent"
+    assert (tmp_path / "variant").read_text() == "foreign-consent"
+    render(tmp_path)
+    assert (tmp_path / "transmitter-defects").read_text() == "" and (tmp_path / "variant").read_text() == ""
+
+
+def test_the_matrix_shows_what_detected_each_variant():
+    from security_tools.__main__ import matrix
+    lines = ['CONFORMANCE {"variant": null, "unexpected": []}',
+             'CONFORMANCE {"variant": "long-access-token", "layer": "authorisation-server", "requirement": "5.1 item 11", '
+             '"detected": true, "unexpected": ["fapi1-advanced-final", "fapi1-advanced-final-refresh-token"], '
+             '"unexpected_conditions": ["FAPIBrazilValidateExpiresIn"]}',
+             'CONFORMANCE {"variant": "expired-token", "layer": "resource-server", "requirement": "RFC 6750", '
+             '"detected": false, "unexpected": [], "unexpected_conditions": []}']
+    table = matrix(lines)
+    assert "| baseline | | | clean | 0 | none |" in table
+    assert "| `long-access-token` | authorisation-server | 5.1 item 11 | yes | 2 | `FAPIBrazilValidateExpiresIn` |" in table
+    assert "| `expired-token` | resource-server | RFC 6750 | **no** | 0 | none |" in table
+    assert table.count("\n") == 5
+
+
+def test_an_interrupted_module_is_noise_not_a_detection():
+    from security_tools import results
+    rs = results.judge([record("a", status="INTERRUPTED", result="FAILED", failures=["a"]),
+                        record("b", result="FAILED", failures=["ValidateIdTokenEncrypted"])], {})
+    s = results.summary(rs)
+    assert s["unexpected"] == ["a", "b"] and s["noise"] == ["a"]
+    assert s["unexpected_conditions"] == ["ValidateIdTokenEncrypted"]

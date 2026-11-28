@@ -72,7 +72,7 @@ HELM_INSTALL := helm upgrade --install --wait --timeout 5m
 
 .PHONY: tools specs jars lint-specs check-requirements transmitter-test proxy-test validator-test cluster platform image \
   transmitter-image transmitter-deploy transmitter-smoke proxy-image proxy-deploy proxy-smoke \
-  security-test security-image security-render auth-deploy security-deploy conformance security-reports \
+  security-test security-image security-render auth-deploy security-deploy conformance variants security-reports \
   validator-image validate validator-smoke telemetry-smoke jobs-test business-rules report report-smoke history operational operational-smoke operational-campaign limits limits-smoke limits-job limits-report limits-campaign campaign focused-campaign reports \
   up smoke diagnose down
 
@@ -217,8 +217,12 @@ security-image: cluster $(OIDF_SCRIPTS)
 
 # The PKI (made once and kept in .cache/security/pki; delete that folder for new keys), the realm
 # and the conformance suite's plan configuration.
+# VARIANT: one defect of the security layer (services/security/src/security_tools/variants.py);
+# empty, the clean realm and transmitter.
+VARIANT ?=
 security-render: $(BIN)/uv
-	cd services/security && uv run --locked python -m security_tools render $(CURDIR)/$(SECURITY_DIR)
+	cd services/security && uv run --locked python -m security_tools render $(CURDIR)/$(SECURITY_DIR) \
+	  $(if $(VARIANT),--variant $(VARIANT))
 
 # Keycloak and the transmitter's mTLS gateway (infra/k8s/auth.yaml), the transmitter's credentials
 # as resource server (Secret transmitter-security) and the walk's as receiver (Secret
@@ -250,6 +254,7 @@ auth-deploy: cluster security-render transmitter-deploy
 	  --from-file=walker.key=$(SECURITY_DIR)/pki/walker.key --from-file=walker.jwks.json=$(SECURITY_DIR)/pki/walker.jwks.json \
 	  --from-file=keycloak-admin-password=$(SECURITY_DIR)/keycloak-admin-password \
 	  --from-file=walker-user-password=$(SECURITY_DIR)/walker-user-password | kubectl apply -f -
+	kubectl -n ofb set env deployment/transmitter TRANSMITTER_DEFECTS="$$(cat $(SECURITY_DIR)/transmitter-defects)"
 	kubectl -n ofb patch deployment transmitter -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":\
 	{\"ofar/security-id\":\"$$(cat $(SECURITY_DIR)/pki/ca.pem $(SECURITY_DIR)/pki/transmitter.* | sha256sum | cut -c1-12)\"}}}}}"
 	sed "s|ofar/config-id: .*|ofar/config-id: \"$(config_id)\"|" infra/k8s/auth.yaml | kubectl apply -f -
@@ -270,8 +275,17 @@ security-deploy: auth-deploy
 # One run of the conformance suite's Brazil plan against Keycloak (infra/k8s/conformance-run.yaml).
 conformance: security-image
 	kubectl -n security delete job conformance-run --ignore-not-found --wait
-	sed "s|\"PLAN_NAME\"|\"$$(cat $(SECURITY_DIR)/plan-name.txt)\"|" infra/k8s/conformance-run.yaml | kubectl apply -f -
+	sed -e "s|\"PLAN_NAME\"|\"$$(cat $(SECURITY_DIR)/plan-name.txt)\"|" \
+	  -e "s|\"DEPLOYED_VARIANT\"|\"$$(cat $(SECURITY_DIR)/variant)\"|" infra/k8s/conformance-run.yaml | kubectl apply -f -
 	scripts/wait-job.sh security conformance-run 7200
+
+# Every variant of the security layer, one plan run each, then the clean baseline again: the
+# runs' CONFORMANCE lines and the matrix of what detected each variant in reports/variants/
+# (VARIANTS: a subset, space-separated).
+VARIANTS ?=
+variants:
+	scripts/variants.sh "$(or $(VARIANTS),$$(cd services/security && uv run --locked python -m security_tools variants))" \
+	  "$(or $(REPORT_NAME),variants-$$(date -u +%Y%m%d))"
 
 # Calls the transmitter through its Service from inside the cluster.
 transmitter-smoke:

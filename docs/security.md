@@ -12,11 +12,12 @@ make security-deploy    # the above and the conformance suite
 make conformance        # one run of the suite's Brazil plan against Keycloak and the transmitter
 ```
 
-Stage 2 of 4: Keycloak and the conformance suite in the cluster, the suite run headless against
-a clean Keycloak and the transmitter as resource server, behind an mTLS gateway (2a), and the
-contract validator's walk with the real flows through the gateway and the defect proxy (2b,
-[validator.md](validator.md#tokens-and-the-way-in-fapi-br-decision-50)). The defects come in
-stage 3 and the detection report in stage 4.
+Stages 1 to 3 of 4: Keycloak and the conformance suite in the cluster, the suite run headless
+against a clean Keycloak and the transmitter as resource server, behind an mTLS gateway (2a),
+the contract validator's walk with the real flows through the gateway and the defect proxy (2b,
+[validator.md](validator.md#tokens-and-the-way-in-fapi-br-decision-50)), and the
+[variants](#variants-stage-3): one defect per run and what the suite detects of them (3). The
+detection report comes in stage 4.
 
 ## Components
 
@@ -183,6 +184,68 @@ own kind cluster and in parallel with the platform job, since it needs none of t
 (about 2.6 minutes of suite time plus the images and Keycloak's start), gated as above; its log
 is in the `security-reports` artifact (`logs/conformance.log`). `make security-test` runs in the
 checks job.
+
+## Variants (stage 3)
+
+```bash
+make security-deploy VARIANT=long-access-token   # Keycloak and the transmitter with one defect
+make conformance                                   # one run, labelled with the deployed variant
+make variants                                      # every variant, then the clean baseline again
+```
+
+Each variant breaks one requirement of v2.2.0, at the authorisation server (a patch of the clean
+realm) or at the resource server (a check the transmitter skips, `TRANSMITTER_DEFECTS`), as
+`services/security/src/security_tools/variants.py` lists them with the requirement they break.
+The unit is the run, labelled with its variant; the suite **detects** a variant when at least
+one module does other than the clean baseline (an `unexpected` outcome, against `suite.KNOWN`).
+Which modules do is measured, not assumed: `make variants` runs the whole plan once per variant
+and writes the runs' `CONFORMANCE` lines and the matrix below into `reports/variants/`. A
+variant's run exits 0 whatever it found; the baseline stays gated.
+
+Keycloak has no setting that makes a `request_uri` reusable (stage 1 listed it as a variant); a
+`request_uri` of 60 seconds, the lifespan the suite checks against, takes its place.
+
+### What the suite detects
+
+2026-11-28, kind on a laptop: the clean baseline, the 11 variants and the baseline again, one plan
+run each (about 4 minutes a run, 52 in all; `reports/variants/`).
+
+| Variant | Layer | Requirement | Detected | Modules | Conditions that failed (not in the baseline) |
+|---|---|---|---|---|---|
+| baseline | | | clean | 0 | none |
+| `par-optional` | authorisation-server | 5.1 item 3: PAR is required | **no** | 0 | none |
+| `pkce-optional` | authorisation-server | 5.1 item 18: PKCE with S256 | yes | 2 | `EnsureInvalidRequestError` |
+| `id-token-rs256` | authorisation-server | 6.2: PS256 for every JWS | yes | 27 | `FAPIBrazilValidateExpiresIn`, `FAPIBrazilValidateIdTokenSigningAlg`, `FAPIValidateIdTokenSigningAlg` |
+| `long-access-token` | authorisation-server | 5.1 item 11: access tokens of 300 to 900 seconds | yes | 15 (+1 interrupted) | `FAPIBrazilValidateExpiresIn` |
+| `refresh-rotation` | authorisation-server | 5.1 item 13: refresh tokens are not rotated | yes | 1 | `ValidateRefreshTokenNotRotated` |
+| `id-token-unencrypted` | authorisation-server | 5.1.1 and 6.3: the id_token encrypted (RSA-OAEP, A256GCM) | yes | 27 | `ValidateIdTokenEncrypted` |
+| `request-uri-60s` | authorisation-server | 5.1 item 16: a request_uri lives at least 120 seconds | **no** | 0 | none |
+| `unbound-token` | resource-server | FAPI 1 Advanced 6.2.1-1 (via v2.2.0 5.1): tokens bound to the client's certificate | yes | 2 | `EnsureHttpStatusCodeIs4xx` |
+| `expired-token` | resource-server | RFC 6750 3.1 (via v2.2.0 5.1 item 11): an expired token is refused | **no** | 0 | none |
+| `foreign-consent` | resource-server | 7: the token's consent:<id> of the client's own consent | **no** | 0 | none |
+| `no-introspection` | resource-server | FAPI 1 Advanced via RFC 6749 4.1.2: a revoked token is refused | yes | 1 | `EnsureHttpStatusCodeIs4xx` |
+| baseline | | | clean | 0 | none |
+
+The suite detects **7 of the 11**. Most of the rows with many modules are one condition repeated: every module that ends
+with a token checks its `expires_in` and the id_token's algorithm and encryption. One
+`id-token-rs256` module also failed `FAPIBrazilValidateExpiresIn`, once.
+
+Its four gaps, each a requirement of v2.2.0 that nothing in the plan exercises:
+
+- **`par-optional`**: in the PAR variant of the plan the suite always pushes; no module sends a
+  request object by value to the authorisation endpoint and expects a refusal.
+- **`request-uri-60s`**: `FAPIBrazilOBCheckPARResponseExpiresIn` checks at least 60 seconds
+  ("the minimum expiration time of request_uri must be 60 seconds"); v2.2.0 says 120.
+- **`expired-token`**: no module waits for a token to expire (300 seconds) before calling the
+  resource server.
+- **`foreign-consent`**: the suite's two clients each use their own consent; none tries the
+  other's.
+
+Detection here means a module whose outcome is not the baseline's. A module the suite only
+interrupted (its own name as the failed condition: the run's timing) is **noise**, counted apart:
+in a first pass of the same runs, before noise was told apart, one such module made `foreign-consent`
+and `request-uri-60s` look detected. Stage 4 turns this into the detection report, with
+detectors of our own for the gaps.
 
 ## Findings
 

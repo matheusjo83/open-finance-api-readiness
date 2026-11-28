@@ -22,6 +22,9 @@ spec:
           args: ["python", "-m", "security_tools", "run", "PLAN_NAME", "/plan/plan.json", "/tmp/export"]
           env:
             - { name: CONFORMANCE_SERVER, value: "https://conformance.security.svc/" }
+            # The variant deployed (make conformance fills it in from make security-render;
+            # empty: the clean baseline, gated on suite.KNOWN).
+            - { name: VARIANT, value: "DEPLOYED_VARIANT" }
             # Dev mode: the local server needs no token, and its self-signed front is not verified.
             - { name: CONFORMANCE_DEV_MODE, value: "1" }
             # Run every module: the runner otherwise stops after 3 that do not complete in a row.
