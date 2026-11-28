@@ -1,7 +1,7 @@
 """The Keycloak realm of the transmitter's authorisation server, configured for FAPI-BR v2.2.0
 (Open Finance Brasil Financial-grade API Security Profile, portal page 1675395195 version 2,
 2026-04-02): FAPI 1 Advanced with private_key_jwt, PAR required, PKCE, PS256, response type
-`code id_token`, the id_token encrypted (RSA-OAEP, A256GCM), access tokens of 300 s bound to
+`code id_token`, the id_token encrypted (RSA-OAEP, A256GCM), access tokens of 360 s bound to
 the client's certificate, refresh tokens without rotation, acr urn:brasil:openbanking:loa2 and
 the parameterized scope consent:<id>.
 
@@ -28,7 +28,10 @@ ALIAS = "ofar"  # the suite's alias: its callback is <suite>/test/a/<alias>/call
 LOA2 = "urn:brasil:openbanking:loa2"
 LOA3 = "urn:brasil:openbanking:loa3"
 RESOURCE_SERVER_CLIENT = "ofar-transmitter"
-ACCESS_TOKEN_SECONDS = 300
+# 300 to 900 s (5.1 item 11). Not 300 itself: Keycloak answers expires_in as exp minus the
+# current second, 299 when a second turns between the two, and the suite's
+# FAPIBrazilValidateExpiresIn fails below 300.
+ACCESS_TOKEN_SECONDS = 360
 PAR_REQUEST_URI_SECONDS = 120
 # Test users of the browser automation: the first approves, the second rejects (suite module
 # fapi1-advanced-final-user-rejects-authentication). Synthetic, like everything else.
