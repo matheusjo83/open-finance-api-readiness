@@ -111,6 +111,11 @@ spec:
           ports:
             - { name: https, containerPort: 8443 }
             - { name: walk, containerPort: 8444 }
+          env:
+            # gateway.conf is a template: the entrypoint writes /etc/nginx/nginx.conf with the
+            # cluster's DNS resolver in it.
+            - { name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS, value: "1" }
+            - { name: NGINX_ENVSUBST_OUTPUT_DIR, value: /etc/nginx }
           readinessProbe:
             tcpSocket: { port: https }
             periodSeconds: 2
@@ -119,7 +124,7 @@ spec:
             limits: { memory: 64Mi }
           volumeMounts:
             - { name: tls, mountPath: /tls, readOnly: true }
-            - { name: nginx, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+            - { name: nginx, mountPath: /etc/nginx/templates/nginx.conf.template, subPath: nginx.conf, readOnly: true }
       volumes:
         - name: tls
           secret: { secretName: gateway-tls }
