@@ -4,7 +4,7 @@ Where the authorisation server may answer with an error page instead of redirect
 7.3: an invalid, reused or expired request_uri; a request without a request object), the suite
 waits for a screenshot of that page and marks the module REVIEW. Its scripted browser (HtmlUnit)
 takes no screenshots, but it logs the HTTP response it got. Once the browser has finished its
-tasks on the page (the plan's automation already waited for the error text), this uploads a PNG
+tasks on an error page (4XX or 5XX; the plan's automation already waited for the error text), this uploads a PNG
 of that response's status and visible text, saying what it is. The module stays REVIEW: the
 image is evidence for a reviewer, not a verdict."""
 
@@ -51,10 +51,22 @@ def render(lines: list[str], width: int = 110) -> str:
     return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
 
 
+def error_page(response: dict) -> bool:
+    try:
+        return int(response.get("response_status_code") or 0) >= 400
+    except (TypeError, ValueError):
+        return False
+
+
 def pending(log: list[dict]) -> list[tuple[str, dict]]:
-    """Placeholders not filled yet where the scripted browser stopped on the authorisation
-    server's page (not back at the suite's callback, where there is no error page to show),
-    each with the last HTTP response the browser got before stopping there."""
+    """Placeholders not filled yet where the scripted browser stopped on an error page of the
+    authorisation server, each with that page's HTTP response (the last one the browser got
+    before stopping there).
+
+    Not back at the suite's callback, where there is no error page to show; and not on a page
+    the server answered with success, such as its login page: the browser is still on its way
+    there (it logs in and goes on), and a placeholder filled then ends the module, so the
+    callback that follows interrupts it."""
     filled = {e.get("upload") for e in log if e.get("img")}
     found = []
     for i, entry in enumerate(log):
@@ -62,13 +74,14 @@ def pending(log: list[dict]) -> list[tuple[str, dict]]:
         if entry.get("result") != "REVIEW" or not placeholder or placeholder in filled or entry.get("img"):
             continue
         after = log[i + 1:]
-        on_server = [j for j, e in enumerate(after) if e.get("src") == "WebRunner"
-                     and e.get("msg") == "Completed processing of webpage" and not at_callback(str(e.get("url", "")))]
-        if not on_server:
-            continue
-        responses = [e for e in after[:on_server[0]] if e.get("msg") == "Scripted browser HTTP response"]
-        if responses:
-            found.append((placeholder, responses[-1]))
+        for j, e in enumerate(after):
+            if (e.get("src") != "WebRunner" or e.get("msg") != "Completed processing of webpage"
+                    or at_callback(str(e.get("url", "")))):
+                continue
+            responses = [r for r in after[:j] if r.get("msg") == "Scripted browser HTTP response"]
+            if responses and error_page(responses[-1]):
+                found.append((placeholder, responses[-1]))
+                break
     return found
 
 
