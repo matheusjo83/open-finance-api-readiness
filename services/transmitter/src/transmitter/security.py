@@ -13,8 +13,11 @@ access token of the transmitter's authorisation server (Keycloak, realm ofb):
 The caller's organisation is the OU of its certificate's subject, as in the Brazilian
 certificate standard; it replaces the `x-mock-client-org-id` stand-in on these requests.
 
-Requests without the gateway's marker keep the stand-ins of docs/transmitter.md until the walk
-moves to the real flows (stage 2b).
+Requests without the gateway's marker keep the stand-ins of docs/transmitter.md (the tests in
+process, the proxy's own calls, the limits' k6 load).
+
+The security layer's resource-server defects (stage 3, TRANSMITTER_DEFECTS) each skip one check:
+`unbound-token`, `expired-token`, `no-introspection` here, `foreign-consent` in app.py.
 """
 
 from __future__ import annotations
@@ -42,6 +45,15 @@ GATEWAY_HEADER = "x-ofar-gateway"
 # The client's certificate as nginx verified it ($ssl_client_escaped_cert: URL-encoded PEM).
 CERT_HEADER = "x-ofar-client-cert"
 ALGORITHM = "PS256"
+DEFECTS = frozenset({"unbound-token", "expired-token", "no-introspection", "foreign-consent"})
+
+
+def parse_defects(raw: str | None) -> frozenset[str]:
+    """TRANSMITTER_DEFECTS: a comma-separated list of DEFECTS (empty: the clean transmitter)."""
+    found = frozenset(d.strip() for d in (raw or "").split(",") if d.strip())
+    if found - DEFECTS:
+        raise ValueError(f"unknown TRANSMITTER_DEFECTS: {sorted(found - DEFECTS)}")
+    return found
 
 
 class Refused(Exception):
@@ -173,6 +185,7 @@ class Verifier:
     jwks: Callable[[], dict]
     introspect: Callable[[str], dict]
     clock: Callable[[], datetime]
+    defects: frozenset[str] = frozenset()
     _keys: dict[str, object] = field(default_factory=dict)
 
     def key(self, kid: str | None):
@@ -198,12 +211,12 @@ class Verifier:
                                 options={"verify_exp": False, "require": ["exp", "iss", "aud"]})
         except jwt.PyJWTError as exc:
             raise Refused(f"the token does not verify: {exc}") from None
-        if self.clock().timestamp() >= claims["exp"]:
+        if self.clock().timestamp() >= claims["exp"] and "expired-token" not in self.defects:
             raise Refused("the token has expired")
         bound = (claims.get("cnf") or {}).get("x5t#S256")
-        if not bound or bound != thumbprint(cert):
+        if (not bound or bound != thumbprint(cert)) and "unbound-token" not in self.defects:
             raise Refused("the token is not bound to the client's certificate")
-        if not reach(self.introspect, token).get("active"):
+        if "no-introspection" not in self.defects and not reach(self.introspect, token).get("active"):
             raise Refused("the token is no longer active")
         return Caller(client_id=str(claims.get("azp") or claims.get("client_id") or ""),
                       organisation_id=organisation_of(cert),

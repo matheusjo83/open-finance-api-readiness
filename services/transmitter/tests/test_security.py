@@ -222,3 +222,36 @@ def test_the_seeded_consents_belong_to_the_seed_client(clock, specs, issuer, cli
     for name, status in (("client1", 200), ("client2", 401)):
         client_id, cert = clients[name]
         assert accounts(api, issuer.token(client_id, cert, f"accounts consent:{authorised}"), cert) == status
+
+
+@pytest.mark.parametrize("defect", ["unbound-token", "expired-token", "no-introspection", "foreign-consent"])
+def test_each_defect_skips_its_check_only(defect, clock, specs, issuer, clients, seed):
+    """The security layer's resource-server variants (TRANSMITTER_DEFECTS): each one accepts the
+    token its check refuses, and still refuses the others."""
+    verifier = Verifier(issuer=ISSUER, audience=AUDIENCE, jwks=issuer.jwks, introspect=issuer.introspect, clock=clock,
+                        defects=frozenset({defect}))
+    api = CheckedClient(TestClient(create_app(seed=42, customers=5, clock=clock, verifier=verifier)), specs)
+    consent = create_consent(api, issuer, clients, "client1", seed["customers"][0]["cpf"])
+    api.client.post(f"/mock/consents/{consent}/authorise")
+    client_id, cert = clients["client1"]
+    other_id, other_cert = clients["client2"]
+    scope = f"accounts consent:{consent}"
+    revoked = issuer.token(client_id, cert, scope)
+    issuer.revoked.add(revoked)
+    expired = issuer.token(client_id, cert, scope, seconds=-1)
+    cases = {
+        "unbound-token": accounts(api, issuer.token(client_id, cert, scope), other_cert),
+        "expired-token": accounts(api, expired, cert),
+        "no-introspection": accounts(api, revoked, cert),
+        "foreign-consent": accounts(api, issuer.token(other_id, other_cert, scope), other_cert),
+    }
+    assert {k: v for k, v in cases.items()} == {k: 200 if k == defect else 401 for k in cases}
+    assert accounts(api, issuer.token(client_id, cert, scope, alg="RS256"), cert) == 401
+
+
+def test_unknown_defects_are_refused():
+    from transmitter.security import parse_defects
+    assert parse_defects("unbound-token, expired-token") == {"unbound-token", "expired-token"}
+    assert parse_defects("") == frozenset()
+    with pytest.raises(ValueError):
+        parse_defects("no-checks-at-all")

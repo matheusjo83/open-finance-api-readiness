@@ -7,7 +7,7 @@ from pathlib import Path
 import uvicorn
 
 from .app import create_app
-from .security import KeycloakClient, Settings, Verifier
+from .security import KeycloakClient, Settings, Verifier, parse_defects
 
 
 def verifier() -> Verifier | None:
@@ -19,7 +19,8 @@ def verifier() -> Verifier | None:
     client_id = os.environ.get("TRANSMITTER_CLIENT_ID", "ofar-transmitter")
     keycloak = KeycloakClient(Settings(issuer, client_id, Path(os.environ.get("TRANSMITTER_SECURITY_DIR", "/security"))))
     return Verifier(issuer=issuer, audience=client_id, jwks=keycloak.jwks, introspect=keycloak.introspect,
-                    clock=lambda: datetime.now(timezone.utc))
+                    clock=lambda: datetime.now(timezone.utc),
+                    defects=parse_defects(os.environ.get("TRANSMITTER_DEFECTS")))
 
 
 def main() -> None:

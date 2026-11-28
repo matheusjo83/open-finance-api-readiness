@@ -215,9 +215,12 @@ def create_app(seed: int = 42, customers: int = 5,
             raise ApiError(403, "PERMISSAO_INSUFICIENTE", "Escopo insuficiente", f"O token não tem o escopo {scope}.")
         return caller
 
+    foreign = verifier is not None and "foreign-consent" in verifier.defects
+
     def owned(consent: Consent, caller: Caller | None) -> Consent:
-        """Through the gateway a client sees only the consents it created."""
-        if caller is not None and consent.client_id != caller.client_id:
+        """Through the gateway a client sees only the consents it created (the defect
+        foreign-consent skips that)."""
+        if caller is not None and consent.client_id != caller.client_id and not foreign:
             raise ApiError(403, "NAO_AUTORIZADO", "Consentimento de outro cliente",
                            "O consentimento não pertence ao cliente do token.")
         return consent
@@ -333,7 +336,7 @@ def create_app(seed: int = 42, customers: int = 5,
         # Through the gateway, the consent of the token's consent:<id>, and only the client's own.
         consent_id = caller.consent_id if caller else token
         consent = store.get(consent_id, clock()) if consent_id else None
-        if consent is not None and caller is not None and consent.client_id != caller.client_id:
+        if consent is not None and caller is not None and consent.client_id != caller.client_id and not foreign:
             consent = None
         if consent is None or consent.status != "AUTHORISED":
             raise ApiError(401, "NAO_AUTORIZADO", "Consentimento inválido",

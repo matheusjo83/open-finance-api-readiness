@@ -58,6 +58,19 @@ def outcome(record: dict, known: dict) -> str:
     return "known" if conditions and conditions <= expected else "unexpected"
 
 
+def conditions_of(record: dict) -> set[str]:
+    """What made a module do as it did: its failed conditions, and its warnings when the suite's
+    result is a warning (as outcome() counts them)."""
+    found = record["failures"] + (record["warnings"] if record["result"] == "WARNING" else [])
+    return {c["condition"] for c in found if c["condition"]}
+
+
+def noise(record: dict) -> bool:
+    """An unexpected module that was only interrupted (the suite names the module itself as the
+    failed condition): the run's timing, not a finding."""
+    return record.get("outcome") == "unexpected" and conditions_of(record) <= {record["module"]}
+
+
 def judge(records: list[dict], known: dict) -> list[dict]:
     return [{**r, "outcome": outcome(r, known)} for r in records]
 
@@ -67,4 +80,8 @@ def summary(records: list[dict]) -> dict:
             "by_result": dict(Counter(f"{r['status']}/{r['result']}" for r in records)),
             "by_outcome": dict(Counter(r.get("outcome") for r in records)),
             "unexpected": sorted(r["module"] for r in records if r.get("outcome") == "unexpected"),
+            # What made them unexpected, and the ones only interrupted (noise).
+            "unexpected_conditions": sorted({c for r in records if r.get("outcome") == "unexpected" and not noise(r)
+                                             for c in conditions_of(r)}),
+            "noise": sorted(r["module"] for r in records if noise(r)),
             "review": sorted(r["module"] for r in records if r.get("outcome") == "review")}
